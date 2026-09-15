@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Secrets and personal data — never commit
+credentials/*
+!credentials/.gitkeep
+token.json
+
+# Downloaded documents — never commit (real personal invoices/receipts)
+dataset/raw/*
+!dataset/raw/.gitkeep
+dataset/sanitized/*
+!dataset/sanitized/.gitkeep
+dataset/excluded/*
+!dataset/excluded/.gitkeep
