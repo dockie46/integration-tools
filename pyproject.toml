@@ -1,0 +1,59 @@
+[project]
+name = "integration-tools"
+version = "0.1.0"
+description = "Personal integration tooling (Google, iCloud, …)"
+requires-python = ">=3.11"
+dependencies = [
+    "integration-providers",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9",
+    "ruff>=0.4,<0.5",
+]
+
+[tool.uv]
+package = false
+default-groups = [
+    "dev",
+]
+
+[tool.uv.workspace]
+members = [
+    "google/oauth",
+    "google/gmail",
+    "google/calendar",
+    "icloud",
+    "integration_providers",
+]
+
+[tool.uv.sources]
+google-oauth = { workspace = true }
+gmail-read = { workspace = true }
+gcal-read = { workspace = true }
+icloud-read = { workspace = true }
+integration-providers = { workspace = true }
+
+[[tool.uv.index]]
+name = "PyPI"
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "google/gmail/tests",
+    "integration_providers/tests",
+    "icloud/tests",
+]
+pythonpath = [
+    "google/gmail/src",
+    "google/gmail/tests",
+    "google/oauth/src",
+    "google/calendar/src",
+    "icloud/src",
+    "integration_providers/src",
+]
+
+[tool.pylint.main]
+init-hook = "import sys; sys.path.extend(['integration_providers/src', 'google/gmail/src', 'google/oauth/src', 'google/calendar/src', 'icloud/src'])"

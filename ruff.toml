@@ -1,0 +1,59 @@
+target-version = "py311"
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+[lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "UP",
+    "I",
+    "COM",
+    "SIM",
+    "DTZ",
+    "ICN",
+    "T20",
+    "PT",
+    "Q",
+    "RET",
+    "ARG",
+    "ERA",
+    "RUF",
+    "PERF",
+    "N",
+    "FLY",
+]
+ignore = [
+    "E501",
+    "COM812",
+    "FLY002",
+    "RUF012",
+    "PT001",
+]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[lint.per-file-ignores]
+"__init__.py" = ["N999"]
+"**/tests/**/test_*" = ["ARG001", "ARG002", "DTZ001"]

@@ -1,0 +1,21 @@
+[project]
+name = "gcal-read"
+version = "0.1.0"
+description = "Read Google Calendar locally (desktop OAuth client) or on AWS Lambda."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-oauth",
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.2.0",
+]
+
+[project.scripts]
+gcal-read = "gcal_read.read_cli:main"
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"

@@ -1,0 +1,21 @@
+[project]
+name = "integration-providers"
+version = "0.1.0"
+description = "Provider factory over mail/calendar integrations (Google, iCloud, …)."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "gmail-read",
+    "gcal-read",
+    "google-oauth",
+    "icloud-read",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/integration_providers"]

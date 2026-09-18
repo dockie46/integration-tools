@@ -1,0 +1,15 @@
+[project]
+name = "icloud-read"
+version = "0.1.0"
+description = "Read iCloud Mail (IMAP) and Calendar (CalDAV) with an app-specific password."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "caldav>=1.3,<3",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"

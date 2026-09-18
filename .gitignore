@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.DS_Store
+.env
+
+# Secrets — never commit
+credentials/*
+!credentials/.gitkeep
+token.json

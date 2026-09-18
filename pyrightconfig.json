@@ -1,0 +1,11 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": [
+    "integration_providers/src",
+    "google/gmail/src",
+    "google/oauth/src",
+    "google/calendar/src",
+    "icloud/src"
+  ]
+}
