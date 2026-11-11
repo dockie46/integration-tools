@@ -1,13 +1,14 @@
 [project]
 name = "google-oauth"
-version = "0.1.0"
-description = "Shared Google OAuth for integration-tools (desktop + headless)."
+version = "0.2.0"
+description = "Shared Google OAuth for integration-tools (desktop, headless and web/multi-tenant)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "google-auth-oauthlib>=1.1.0",
     "google-auth-httplib2>=0.2.0",
     "google-auth>=2.0.0",
+    "requests>=2.31",
 ]
 
 [build-system]

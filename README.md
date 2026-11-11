@@ -31,6 +31,28 @@ for cal in p.list_calendars("google", "icloud"):
     print(cal.provider, cal.id, cal.name)
 ```
 
+## Multi-tenant / web apps (Softwareify Company Platform)
+
+No files, no browser on the server: the app redirects the user to Google, stores the grant as a secret
+(e.g. AWS Secrets Manager) and every client is built from that secret.
+
+```python
+from google_oauth import OAuthClient, authorization_url, exchange_code, new_pkce, new_state, scopes_for
+
+client = OAuthClient(client_id, client_secret, "https://app.example.com/oauth/google/callback")
+verifier, challenge = new_pkce()
+url = authorization_url(client, scopes_for("calendar", "drive"), state=new_state(), code_challenge=challenge)
+# ... redirect back with ?code=...
+secret = exchange_code(client, code, code_verifier=verifier).to_secret(client)  # store this
+
+from integration_providers.google_provider import GoogleProvider
+events = GoogleProvider.from_secret(secret).read_calendar(limit=10)
+```
+
+Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
+again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type
+**Web application** with the app's redirect URI registered.
+
 ## Credentials
 
 **Google**

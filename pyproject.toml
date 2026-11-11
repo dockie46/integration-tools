@@ -42,6 +42,7 @@ default = true
 
 [tool.pytest.ini_options]
 testpaths = [
+    "google/oauth/tests",
     "google/gmail/tests",
     "integration_providers/tests",
     "icloud/tests",

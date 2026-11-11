@@ -82,3 +82,27 @@ def test_discover_uses_catalog_not_hardcoded_ifs(tmp_path) -> None:
     )
     p = Providers.discover(root=tmp_path, allow_browser=False)
     assert p.names == ["icloud"]
+
+
+def test_google_provider_from_secret_uses_secret_clients(monkeypatch):
+    from integration_providers.google_provider import GoogleProvider
+
+    seen = []
+
+    class _Cal:
+        def list_calendars(self):
+            return []
+
+        def list_events(self, **kwargs):
+            seen.append(kwargs["calendar_id"])
+            return []
+
+    monkeypatch.setattr(
+        "integration_providers.google_provider.CalendarClient.from_secret",
+        classmethod(lambda _cls, _secret: _Cal()),
+    )
+
+    provider = GoogleProvider.from_secret({"refreshToken": "rt", "calendars": "primary, team@group"})
+
+    assert provider.read_calendar(limit=5) == []
+    assert seen == ["primary", "team@group"]

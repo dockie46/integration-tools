@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -484,12 +484,13 @@ wheels = [
 
 [[package]]
 name = "google-oauth"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "google/oauth" }
 dependencies = [
     { name = "google-auth" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -497,6 +498,7 @@ requires-dist = [
     { name = "google-auth", specifier = ">=2.0.0" },
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.1.0" },
+    { name = "requests", specifier = ">=2.31" },
 ]
 
 [[package]]

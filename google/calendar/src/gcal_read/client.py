@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
+from google_oauth.scopes import SERVICE_SCOPES
+from google_oauth.secret import credentials_from_secret
 from googleapiclient.discovery import Resource
 
 from . import api as calendar_api
@@ -31,6 +35,12 @@ class CalendarClient:
     @classmethod
     def from_env(cls) -> CalendarClient:
         creds = load_credentials_from_env()
+        return cls(calendar_api.build_service(creds))
+
+    @classmethod
+    def from_secret(cls, secret: Mapping[str, Any]) -> CalendarClient:
+        """Multi-tenant / Lambda: a stored web-OAuth secret (see google_oauth.web.TokenGrant.to_secret)."""
+        creds = credentials_from_secret(secret, required_scopes=SERVICE_SCOPES["calendar_readonly"])
         return cls(calendar_api.build_service(creds))
 
     def list_calendars(self) -> list[CalendarRef]:

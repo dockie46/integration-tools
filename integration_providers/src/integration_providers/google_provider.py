@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from gcal_read.client import CalendarClient
 from gmail_read.client import GmailClient
@@ -42,6 +44,17 @@ def _load_calendar_ids(settings_path: Path | None = None) -> tuple[str, ...]:
     return ids or ("primary",)
 
 
+def _secret_calendar_ids(secret: Mapping[str, Any]) -> tuple[str, ...]:
+    raw = next((v for k, v in secret.items() if str(k).lower() == "calendars"), None)
+    if isinstance(raw, list | tuple):
+        ids = tuple(str(item).strip() for item in raw if str(item).strip())
+    elif raw:
+        ids = tuple(part.strip() for part in str(raw).split(",") if part.strip())
+    else:
+        ids = ()
+    return ids or ("primary",)
+
+
 class GoogleProvider:
     name = "google"
 
@@ -53,11 +66,13 @@ class GoogleProvider:
         allow_browser: bool = True,
         use_env: bool = False,
         calendar_ids: tuple[str, ...] = ("primary",),
+        secret: Mapping[str, Any] | None = None,
     ) -> None:
         self._credentials_path = credentials_path
         self._token_path = token_path
         self._allow_browser = allow_browser
         self._use_env = use_env
+        self._secret = dict(secret) if secret is not None else None
         self._calendar_ids = calendar_ids
         self._gmail: GmailClient | None = None
         self._calendar: CalendarClient | None = None
@@ -82,9 +97,26 @@ class GoogleProvider:
             )
         return cls(use_env=True, allow_browser=False, calendar_ids=calendar_ids)
 
+    @classmethod
+    def from_secret(
+        cls,
+        secret: Mapping[str, Any],
+        *,
+        calendar_ids: tuple[str, ...] | list[str] | None = None,
+    ) -> GoogleProvider:
+        """One tenant's Google account from its stored web-OAuth secret (no files, no browser).
+
+        Calendar ids come from ``calendar_ids``, else the secret's ``calendars`` (list or comma-separated),
+        else ``primary``.
+        """
+        ids = tuple(calendar_ids) if calendar_ids else _secret_calendar_ids(secret)
+        return cls(allow_browser=False, calendar_ids=ids, secret=secret)
+
     def _mail(self) -> GmailClient:
         if self._gmail is None:
-            if self._use_env:
+            if self._secret is not None:
+                self._gmail = GmailClient.from_secret(self._secret)
+            elif self._use_env:
                 self._gmail = GmailClient.from_env()
             else:
                 assert self._credentials_path is not None and self._token_path is not None
@@ -97,7 +129,9 @@ class GoogleProvider:
 
     def _cal(self) -> CalendarClient:
         if self._calendar is None:
-            if self._use_env:
+            if self._secret is not None:
+                self._calendar = CalendarClient.from_secret(self._secret)
+            elif self._use_env:
                 self._calendar = CalendarClient.from_env()
             else:
                 assert self._credentials_path is not None and self._token_path is not None
