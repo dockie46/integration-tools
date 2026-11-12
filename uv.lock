@@ -9,11 +9,41 @@ resolution-markers = [
 [manifest]
 members = [
     "gcal-read",
+    "gdrive",
     "gmail-read",
     "google-oauth",
     "icloud-read",
     "integration-providers",
     "integration-tools",
+    "s3files",
+]
+
+[[package]]
+name = "boto3"
+version = "1.44.1"
+source = { registry = "https://pypi.org/simple/" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/91/02/d46523af0a933c35604e2bbb33e4ca8f69a00f9990af6d6b29ed84db64aa/boto3-1.44.1.tar.gz", hash = "sha256:c81dfdaab894cbcba78aa3773fe3fb27a13b576f49ff5552b91190072fc7dac0", size = 112740, upload-time = "2026-11-11T21:11:18.611Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/5a/8af6cf092d9212091b8fc9bbf559bd04916094883a3c79a2464e715a1adf/boto3-1.44.1-py3-none-any.whl", hash = "sha256:1342653b8af9dc89f182cb5c0dfd5fa10f430d757c0ebd00326c053a6270d2c4", size = 140152, upload-time = "2026-11-11T21:11:15.904Z" },
+]
+
+[[package]]
+name = "botocore"
+version = "1.44.1"
+source = { registry = "https://pypi.org/simple/" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/61/07918ec258ab7131dd601cb1aaffcd7fa008fa8bb0143fd195ecc4b4435d/botocore-1.44.1.tar.gz", hash = "sha256:e71f6249be2a7324899ba81c5958ac1809a78498ea2c8f60e00fc0e62262ab83", size = 16596239, upload-time = "2026-11-11T21:11:12.562Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4d/45/ea4a91a51d6cafd6a7f7b0b8b88767c6d7054dc588ffcb7d1e11e9402e69/botocore-1.44.1-py3-none-any.whl", hash = "sha256:7a741074a78e28187c88d9f7f91db18731ea91725455873d863ae63ea35e75f3", size = 16295147, upload-time = "2026-11-11T21:11:08.108Z" },
 ]
 
 [[package]]
@@ -392,6 +422,25 @@ requires-dist = [
 ]
 
 [[package]]
+name = "gdrive"
+version = "0.1.0"
+source = { editable = "google/drive" }
+dependencies = [
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "google-oauth" },
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-api-python-client", specifier = ">=2.100.0" },
+    { name = "google-auth", specifier = ">=2.0.0" },
+    { name = "google-oauth", editable = "google/oauth" },
+    { name = "requests", specifier = ">=2.31" },
+]
+
+[[package]]
 name = "gmail-read"
 version = "0.3.0"
 source = { editable = "google/gmail" }
@@ -596,17 +645,21 @@ version = "0.1.0"
 source = { editable = "integration_providers" }
 dependencies = [
     { name = "gcal-read" },
+    { name = "gdrive" },
     { name = "gmail-read" },
     { name = "google-oauth" },
     { name = "icloud-read" },
+    { name = "s3files" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "gcal-read", editable = "google/calendar" },
+    { name = "gdrive", editable = "google/drive" },
     { name = "gmail-read", editable = "google/gmail" },
     { name = "google-oauth", editable = "google/oauth" },
     { name = "icloud-read", editable = "icloud" },
+    { name = "s3files", editable = "aws/s3" },
 ]
 
 [[package]]
@@ -696,6 +749,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/53/20/2263d6fc207a7ce9b489c4cd18d61076dcfcbf134ab87936273864127ec6/jh2-5.0.14-pp311-pypy311_pp73-musllinux_1_1_i686.whl", hash = "sha256:8d1ce29fc178bb737342d8d62b4b051a3e1a69294b21812bbcd4b3f27341f11e", size = 638472, upload-time = "2026-08-28T07:24:17.221Z" },
     { url = "https://files.pythonhosted.org/packages/52/a5/03fa61651aef77a5217cde14fc1bc15a63e46724b267d30c7b5985818faf/jh2-5.0.14-pp311-pypy311_pp73-musllinux_1_1_x86_64.whl", hash = "sha256:0d2777e125fe623249ca52872e74023fed70b36b5fff2e6dc604a56220b785fe", size = 605714, upload-time = "2026-08-28T07:24:19.178Z" },
     { url = "https://files.pythonhosted.org/packages/cc/22/2e6109ef29d4b9bda8703c0f4697556e17b4f6c8539c0d57f18edaf33cf7/jh2-5.0.14-py3-none-any.whl", hash = "sha256:070895dfaeda94eccbdc45c7c97985d1c6ac339de7c4e329106b6f9450189bda", size = 99142, upload-time = "2026-08-28T07:25:20.297Z" },
+]
+
+[[package]]
+name = "jmespath"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple/" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
 
 [[package]]
@@ -1178,6 +1240,29 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e8/94/3bb62a0086e9c61d0506e546e7cf68456fd93bf569a8adfa5e324812970d/ruff-0.4.10-py3-none-win32.whl", hash = "sha256:ffe3cd2f89cb54561c62e5fa20e8f182c0a444934bf430515a4b422f1ab7b7ca", size = 7707741, upload-time = "2024-06-20T17:42:45.061Z" },
     { url = "https://files.pythonhosted.org/packages/d8/4e/6fd32ebd0a09f25ed9911b77c5273b7a6b3b50a78d6ed0508d66a24398b8/ruff-0.4.10-py3-none-win_amd64.whl", hash = "sha256:67f67cef43c55ffc8cc59e8e0b97e9e60b4837c8f21e8ab5ffd5d66e196e25f7", size = 8519153, upload-time = "2024-06-20T17:42:48.907Z" },
     { url = "https://files.pythonhosted.org/packages/dc/78/5109b7db3b44a64157b025e45eec6591e4beb53732104637d8e0ee0c5570/ruff-0.4.10-py3-none-win_arm64.whl", hash = "sha256:dd1fcee327c20addac7916ca4e2653fbbf2e8388d8a6477ce5b4e986b68ae6c0", size = 7906942, upload-time = "2024-06-20T17:42:52.972Z" },
+]
+
+[[package]]
+name = "s3files"
+version = "0.1.0"
+source = { editable = "aws/s3" }
+dependencies = [
+    { name = "boto3" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "boto3", specifier = ">=1.34,<2" }]
+
+[[package]]
+name = "s3transfer"
+version = "0.19.3"
+source = { registry = "https://pypi.org/simple/" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/c5/0a5ce655109cb96b8dfad36908a4e108d15f5dc2eff8fbc3146c4312e704/s3transfer-0.19.3.tar.gz", hash = "sha256:8326acc3d056d7f7b8a37110c7d2aea41f67e83f6ae79cd3b5fbcca34c726406", size = 166087, upload-time = "2026-10-19T19:19:49.751Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/a4/88f9e10498759121060b8050a1554753dfc04df39bbbcc7aad9ecc8d9440/s3transfer-0.19.3-py3-none-any.whl", hash = "sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553", size = 90252, upload-time = "2026-10-19T19:19:48.309Z" },
 ]
 
 [[package]]

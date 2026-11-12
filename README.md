@@ -10,7 +10,8 @@ make test
 
 ```
 integration-tools/
-  google/                  # OAuth, Gmail, Calendar
+  google/                  # OAuth, Gmail, Calendar, Drive
+  aws/s3/                  # S3 files (s3files)
   icloud/                  # IMAP + CalDAV
   integration_providers/   # factory package (import: integration_providers)
   credentials/             # secrets — never commit
@@ -78,6 +79,25 @@ step = google.sync_events(room.id, token=stored_token, since=start)       # Cale
 # step.changed / step.deleted_ids; store step.next_token. step.full: replace, don't merge.
 # Events the app wrote carry external_key, events people made in Google do not.
 ```
+
+Files, wherever the connection keeps them (Google Drive or S3; OneDrive later):
+
+```python
+from integration_providers import open_file_store
+
+store = open_file_store(secret)                      # secret["provider"]: google/gdrive -> Drive, s3/aws -> S3
+store.put("smlouvy/2026/najem.pdf", data, "application/pdf")
+info, data = store.get("smlouvy/2026/najem.pdf")     # FileNotFoundError when missing
+store.delete("smlouvy/2026/najem.pdf")               # False when it was not there
+target = store.upload_target("video/big.mp4", "video/mp4", size=n, origin="https://app.example.com")
+# browser: PUT target.url with target.headers (S3 presigned URL / Drive resumable session)
+store.download_url("smlouvy/2026/najem.pdf")         # presigned link on S3, None on Drive (stream via get)
+store.check()                                        # StoreCheck(ok, detail): account email / bucket
+```
+
+Drive keeps keys as nested folders under the app's own root folder (`folderId` in the secret, else a
+"Softwareify" folder it creates; the `drive.file` scope sees nothing else). S3 takes `bucket`, `region`,
+optional `prefix`, `endpointUrl` (LocalStack, MinIO, R2) and keys (else the Lambda's role).
 
 Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type

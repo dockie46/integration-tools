@@ -1,0 +1,15 @@
+[project]
+name = "s3files"
+version = "0.1.0"
+description = "S3 (and S3-compatible) files for apps: put/get/delete, presigned upload and download URLs."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "boto3>=1.34,<2",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
