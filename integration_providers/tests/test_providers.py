@@ -106,3 +106,96 @@ def test_google_provider_from_secret_uses_secret_clients(monkeypatch):
 
     assert provider.read_calendar(limit=5) == []
     assert seen == ["primary", "team@group"]
+
+
+def _secret_provider(monkeypatch, *, reader, writer=None):
+    from integration_providers.google_provider import GoogleProvider
+
+    def from_secret(cls, secret, *, write=False):
+        return writer if write else reader
+
+    monkeypatch.setattr(
+        "integration_providers.google_provider.CalendarClient.from_secret", classmethod(from_secret)
+    )
+    return GoogleProvider.from_secret({"refreshToken": "rt"}, calendar_ids=["primary", "room@group"])
+
+
+def test_google_provider_events_between_in_utc(monkeypatch):
+    from datetime import UTC, datetime
+
+    from gcal_read.models import CalendarEvent, CalendarRef, EventTime
+
+    class _Reader:
+        def list_calendars(self):
+            return [CalendarRef("me@firma.cz", "Me", primary=True, time_zone="Europe/Prague")]
+
+        def list_events_between(self, calendar_id, start, end):
+            if calendar_id == "primary":
+                return [
+                    CalendarEvent(
+                        "e1", calendar_id, "Dovolená", "confirmed",
+                        EventTime(date="2026-11-12"), EventTime(date="2026-11-13"),
+                    )
+                ]
+            return [
+                CalendarEvent(
+                    "e2", calendar_id, "Porada", "confirmed",
+                    EventTime(date_time="2026-11-12T08:00:00Z"), EventTime(date_time="2026-11-12T09:00:00Z"),
+                    transparency="transparent", external_key="booking-1",
+                )
+            ]
+
+    provider = _secret_provider(monkeypatch, reader=_Reader())
+    start = datetime(2026, 11, 12, tzinfo=UTC)
+
+    items = provider.list_events_between(start, start.replace(day=13))
+
+    assert [(i.id, i.calendar, i.start.isoformat(), i.all_day, i.busy) for i in items] == [
+        ("e1", "primary", "2026-11-11T23:00:00+00:00", True, True),
+        ("e2", "room@group", "2026-11-12T08:00:00+00:00", False, False),
+    ]
+    assert items[1].external_key == "booking-1"
+
+
+def test_google_provider_free_busy_and_writes(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from gcal_read.models import BusyInterval, CalendarEvent, EventTime, FreeBusy
+
+    from integration_providers.models import EventWrite
+
+    start = datetime(2026, 11, 12, 8, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+
+    class _Reader:
+        def free_busy(self, calendar_ids, s, e):
+            assert calendar_ids == ["primary", "room@group"]
+            return FreeBusy(busy=[BusyInterval("room@group", s, e)], errors={"primary": "notFound"})
+
+    class _Writer:
+        def __init__(self):
+            self.written = []
+
+        def upsert_event(self, calendar_id, event):
+            self.written.append((calendar_id, event))
+            return CalendarEvent("evt-9", calendar_id, event.summary, "confirmed", EventTime(), EventTime()), True
+
+        def delete_event(self, calendar_id, key):
+            return key == "booking-1"
+
+    writer = _Writer()
+    provider = _secret_provider(monkeypatch, reader=_Reader(), writer=writer)
+
+    busy = provider.free_busy(start, end)
+    assert [(b.calendar, b.start, b.end) for b in busy.items] == [("room@group", start, end)]
+    assert busy.errors == {"primary": "notFound"}
+
+    result = provider.upsert_event(
+        "room@group", EventWrite("Rental", start, end, "booking-1", time_zone="Europe/Prague", busy=False)
+    )
+    assert result.to_dict() == {"provider": "google", "calendar": "room@group", "event_id": "evt-9", "created": True}
+    written = writer.written[0][1]
+    assert (written.external_key, written.time_zone, written.busy) == ("booking-1", "Europe/Prague", False)
+
+    assert provider.delete_event("room@group", "booking-1") is True
+    assert provider.delete_event("room@group", "booking-2") is False

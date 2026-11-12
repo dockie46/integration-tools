@@ -5,13 +5,24 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from gcal_read.client import CalendarClient
+from gcal_read.models import EventInput
 from gmail_read.client import GmailClient
 
-from .models import CalendarItem, CalendarRefItem, EmailItem
+from .models import (
+    BusyItem,
+    CalendarEventItem,
+    CalendarItem,
+    CalendarRefItem,
+    EmailItem,
+    EventWrite,
+    FreeBusyResult,
+    WriteResult,
+)
 
 
 def _env_token_present() -> bool:
@@ -76,6 +87,7 @@ class GoogleProvider:
         self._calendar_ids = calendar_ids
         self._gmail: GmailClient | None = None
         self._calendar: CalendarClient | None = None
+        self._calendar_writer: CalendarClient | None = None
 
     @classmethod
     def available(cls, root: Path) -> bool:
@@ -192,3 +204,89 @@ class GoogleProvider:
                 )
         items.sort(key=lambda item: item.start)
         return items[:limit]
+
+    # --- calendar sync (CalendarWriter) -------------------------------------------------------
+
+    def _writer(self) -> CalendarClient:
+        """Client with the event-write scope. File/env tokens use their own scopes (``auth.SCOPES``)."""
+        if self._secret is None:
+            return self._cal()
+        if self._calendar_writer is None:
+            self._calendar_writer = CalendarClient.from_secret(self._secret, write=True)
+        return self._calendar_writer
+
+    def list_events_between(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        calendars: list[str] | None = None,
+    ) -> list[CalendarEventItem]:
+        """Events overlapping [start, end) in the selected calendars, times in UTC, ordered by start."""
+        calendar_ids = tuple(calendars) if calendars is not None else self._calendar_ids
+        refs = {}
+        for ref in self._cal().list_calendars():
+            refs[ref.calendar_id] = ref
+            if ref.primary:
+                refs["primary"] = ref
+        items: list[CalendarEventItem] = []
+        for calendar_id in calendar_ids:
+            ref = refs.get(calendar_id)
+            zone = ref.time_zone if ref and ref.time_zone else "UTC"
+            for event in self._cal().list_events_between(calendar_id, start, end):
+                event_start = event.start.as_utc(zone)
+                event_end = event.end.as_utc(zone)
+                if event_start is None or event_end is None:
+                    continue
+                items.append(
+                    CalendarEventItem(
+                        provider=self.name,
+                        id=event.event_id,
+                        calendar=calendar_id,
+                        summary=event.summary,
+                        start=event_start,
+                        end=event_end,
+                        all_day=event.start.all_day,
+                        location=event.location,
+                        busy=event.busy,
+                        external_key=event.external_key,
+                    )
+                )
+        items.sort(key=lambda item: (item.start, item.calendar))
+        return items
+
+    def free_busy(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        calendars: list[str] | None = None,
+    ) -> FreeBusyResult:
+        calendar_ids = list(calendars) if calendars is not None else list(self._calendar_ids)
+        result = self._cal().free_busy(calendar_ids, start, end)
+        return FreeBusyResult(
+            items=[
+                BusyItem(provider=self.name, calendar=b.calendar_id, start=b.start, end=b.end)
+                for b in result.busy
+            ],
+            errors=dict(result.errors),
+        )
+
+    def upsert_event(self, calendar_id: str, event: EventWrite) -> WriteResult:
+        written, created = self._writer().upsert_event(
+            calendar_id,
+            EventInput(
+                summary=event.summary,
+                start=event.start,
+                end=event.end,
+                external_key=event.external_key,
+                description=event.description,
+                location=event.location,
+                time_zone=event.time_zone,
+                busy=event.busy,
+            ),
+        )
+        return WriteResult(provider=self.name, calendar=calendar_id, event_id=written.event_id, created=created)
+
+    def delete_event(self, calendar_id: str, external_key: str) -> bool:
+        return self._writer().delete_event(calendar_id, external_key)

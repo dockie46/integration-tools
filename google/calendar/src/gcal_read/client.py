@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +12,9 @@ from google_oauth.secret import credentials_from_secret
 from googleapiclient.discovery import Resource
 
 from . import api as calendar_api
+from . import write as calendar_write
 from .auth import load_credentials, load_credentials_from_env
-from .models import CalendarEvent, CalendarRef
+from .models import CalendarEvent, CalendarRef, EventInput, FreeBusy
 
 
 class CalendarClient:
@@ -38,9 +40,13 @@ class CalendarClient:
         return cls(calendar_api.build_service(creds))
 
     @classmethod
-    def from_secret(cls, secret: Mapping[str, Any]) -> CalendarClient:
-        """Multi-tenant / Lambda: a stored web-OAuth secret (see google_oauth.web.TokenGrant.to_secret)."""
-        creds = credentials_from_secret(secret, required_scopes=SERVICE_SCOPES["calendar_readonly"])
+    def from_secret(cls, secret: Mapping[str, Any], *, write: bool = False) -> CalendarClient:
+        """Multi-tenant / Lambda: a stored web-OAuth secret (see google_oauth.web.TokenGrant.to_secret).
+
+        ``write=True`` also requires the event-write scope (raises GoogleScopesMissingError without it).
+        """
+        service = "calendar" if write else "calendar_readonly"
+        creds = credentials_from_secret(secret, required_scopes=SERVICE_SCOPES[service])
         return cls(calendar_api.build_service(creds))
 
     def list_calendars(self) -> list[CalendarRef]:
@@ -66,3 +72,15 @@ class CalendarClient:
 
     def get(self, event_id: str, *, calendar_id: str = "primary") -> CalendarEvent:
         return calendar_api.get_event(self.service, event_id, calendar_id=calendar_id)
+
+    def list_events_between(self, calendar_id: str, start: datetime, end: datetime) -> list[CalendarEvent]:
+        return calendar_write.list_events_between(self.service, calendar_id, start, end)
+
+    def free_busy(self, calendar_ids: Iterable[str], start: datetime, end: datetime) -> FreeBusy:
+        return calendar_write.free_busy(self.service, calendar_ids, start, end)
+
+    def upsert_event(self, calendar_id: str, event: EventInput) -> tuple[CalendarEvent, bool]:
+        return calendar_write.upsert_event(self.service, calendar_id, event)
+
+    def delete_event(self, calendar_id: str, external_key: str) -> bool:
+        return calendar_write.delete_event_by_key(self.service, calendar_id, external_key)

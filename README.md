@@ -49,6 +49,25 @@ from integration_providers.google_provider import GoogleProvider
 events = GoogleProvider.from_secret(secret).read_calendar(limit=10)
 ```
 
+Calendar sync (bookings → calendar, availability, meeting-room displays):
+
+```python
+from datetime import UTC, datetime, timedelta
+from integration_providers import EventWrite
+
+google = GoogleProvider.from_secret(secret, calendar_ids=["primary", "room@group.calendar.google.com"])
+start = datetime.now(UTC); end = start + timedelta(days=1)
+
+google.list_events_between(start, end)   # CalendarEventItem, UTC, recurring expanded, busy flag
+google.free_busy(start, end)             # FreeBusyResult(items=[BusyItem], errors={calendar: reason})
+google.upsert_event("primary", EventWrite("Rental: Box 1", start, end, external_key="booking-42",
+                                          time_zone="Europe/Prague"))  # same key -> same event
+google.delete_event("primary", "booking-42")
+```
+
+The key is stored in a private extended property (`sourceKey`), so the app never needs Google's event id.
+Writing needs the `calendar` service scopes; reading works with `calendar_readonly`.
+
 Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type
 **Web application** with the app's redirect URI registered.

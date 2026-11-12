@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from .models import CalendarItem, CalendarRefItem, EmailItem
+from .models import (
+    CalendarEventItem,
+    CalendarItem,
+    CalendarRefItem,
+    EmailItem,
+    EventWrite,
+    FreeBusyResult,
+    WriteResult,
+)
 
 
 class Provider(Protocol):
@@ -24,6 +33,33 @@ class Provider(Protocol):
         *,
         calendars: list[str] | None = None,
     ) -> list[CalendarItem]: ...
+
+
+class CalendarWriter(Protocol):
+    """Calendar sync for apps: time-window reads in UTC, free/busy, idempotent writes by external key."""
+
+    @property
+    def name(self) -> str: ...
+
+    def list_events_between(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        calendars: list[str] | None = None,
+    ) -> list[CalendarEventItem]: ...
+
+    def free_busy(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        calendars: list[str] | None = None,
+    ) -> FreeBusyResult: ...
+
+    def upsert_event(self, calendar_id: str, event: EventWrite) -> WriteResult: ...
+
+    def delete_event(self, calendar_id: str, external_key: str) -> bool: ...
 
 
 class ProviderType(Protocol):

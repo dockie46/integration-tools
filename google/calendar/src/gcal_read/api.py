@@ -13,6 +13,9 @@ from googleapiclient.errors import HttpError
 from .auth import CalendarAuthError
 from .models import CalendarEvent, CalendarRef, EventTime
 
+# Private extended property holding EventInput.external_key (e.g. a booking id); only this app sees it.
+EXTERNAL_KEY_PROPERTY = "sourceKey"
+
 _RATE_LIMIT_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"}
 
 
@@ -79,6 +82,8 @@ def parse_event(item: dict, *, calendar_id: str) -> CalendarEvent:
         organizer=organizer.get("email") or organizer.get("displayName") or "",
         attendees=[a for a in attendees if a],
         recurring_event_id=item.get("recurringEventId") or "",
+        transparency=item.get("transparency") or "opaque",
+        external_key=((item.get("extendedProperties") or {}).get("private") or {}).get(EXTERNAL_KEY_PROPERTY, ""),
     )
 
 
