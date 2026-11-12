@@ -10,6 +10,7 @@ from .models import (
     CalendarEventItem,
     CalendarItem,
     CalendarRefItem,
+    CalendarSyncResult,
     EmailItem,
     EventWrite,
     FreeBusyResult,
@@ -60,6 +61,18 @@ class CalendarWriter(Protocol):
     def upsert_event(self, calendar_id: str, event: EventWrite) -> WriteResult: ...
 
     def delete_event(self, calendar_id: str, external_key: str) -> bool: ...
+
+    def sync_events(
+        self,
+        calendar_id: str,
+        token: str | None = None,
+        *,
+        since: datetime | None = None,
+    ) -> CalendarSyncResult: ...
+
+    def create_calendar(self, name: str, *, time_zone: str = "UTC", description: str = "") -> CalendarRefItem: ...
+
+    def share_calendar(self, calendar_id: str, email: str, *, role: str = "reader") -> str: ...
 
 
 class ProviderType(Protocol):

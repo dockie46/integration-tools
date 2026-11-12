@@ -22,6 +22,9 @@ class _Events:
 
     def list(self, **kwargs: Any) -> _Request:
         self._s.calls.append(("list", kwargs))
+        if self._s.list_queue:
+            nxt = self._s.list_queue.pop(0)
+            return _Request(None, nxt) if isinstance(nxt, Exception) else _Request(nxt)
         key = kwargs.get("privateExtendedProperty")
         if key is not None:
             return _Request({"items": self._s.by_key.get(key, [])})
@@ -56,6 +59,30 @@ class _FreeBusy:
         )
 
 
+class _Calendars:
+    def __init__(self, service: FakeCalendarService) -> None:
+        self._s = service
+
+    def insert(self, body: dict) -> _Request:
+        self._s.calls.append(("calendars.insert", body))
+        return _Request(
+            {
+                "id": "new-cal@group.calendar.google.com",
+                "summary": body["summary"],
+                "timeZone": body["timeZone"],
+            }
+        )
+
+
+class _Acl:
+    def __init__(self, service: FakeCalendarService) -> None:
+        self._s = service
+
+    def insert(self, **kwargs: Any) -> _Request:
+        self._s.calls.append(("acl.insert", kwargs))
+        return _Request({"id": "user:" + kwargs["body"]["scope"]["value"]})
+
+
 class FakeCalendarService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -63,9 +90,16 @@ class FakeCalendarService:
         self.window_items: list[dict] = []
         self.freebusy_data: dict[str, dict] = {}
         self.delete_error: Exception | None = None
+        self.list_queue: list[dict | Exception] = []
 
     def events(self) -> _Events:
         return _Events(self)
 
     def freebusy(self) -> _FreeBusy:
         return _FreeBusy(self)
+
+    def calendars(self) -> _Calendars:
+        return _Calendars(self)
+
+    def acl(self) -> _Acl:
+        return _Acl(self)

@@ -20,6 +20,11 @@ SERVICE_SCOPES: dict[str, tuple[str, ...]] = {
         "https://www.googleapis.com/auth/calendar.readonly",
     ),
     "calendar_readonly": ("https://www.googleapis.com/auth/calendar.readonly",),
+    # Create calendars of its own (e.g. one per meeting room) and share them.
+    "calendar_manage": (
+        "https://www.googleapis.com/auth/calendar.app.created",
+        "https://www.googleapis.com/auth/calendar.acls",
+    ),
     # Drive: only files and folders this app created or the user picked for it.
     "drive": ("https://www.googleapis.com/auth/drive.file",),
 }

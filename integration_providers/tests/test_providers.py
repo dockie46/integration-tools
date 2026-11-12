@@ -199,3 +199,49 @@ def test_google_provider_free_busy_and_writes(monkeypatch):
 
     assert provider.delete_event("room@group", "booking-1") is True
     assert provider.delete_event("room@group", "booking-2") is False
+
+
+def test_google_provider_sync_and_create_calendar(monkeypatch):
+    from gcal_read.models import CalendarEvent, CalendarRef, EventSync, EventTime
+
+    from integration_providers.google_provider import GoogleProvider
+
+    clients = {}
+
+    class _Client:
+        def list_calendars(self):
+            return [CalendarRef("room@group", "Zasedačka", time_zone="Europe/Prague")]
+
+        def sync_events(self, calendar_id, token, *, since=None):
+            assert (calendar_id, token) == ("room@group", "tok-1")
+            event = CalendarEvent(
+                "e1", calendar_id, "Porada", "confirmed",
+                EventTime(date="2026-11-12"), EventTime(date="2026-11-13"),
+            )
+            return EventSync(changed=[event], deleted_ids=["old"], next_sync_token="tok-2", full=False)
+
+        def create_calendar(self, name, *, time_zone="UTC", description=""):
+            return CalendarRef("new@group", name, time_zone=time_zone)
+
+        def share_calendar(self, calendar_id, email, *, role="reader"):
+            return f"{calendar_id}:{email}:{role}"
+
+    def from_secret(cls, secret, *, write=False, manage=False):
+        clients.setdefault((write, manage), _Client())
+        return clients[(write, manage)]
+
+    monkeypatch.setattr(
+        "integration_providers.google_provider.CalendarClient.from_secret", classmethod(from_secret)
+    )
+    provider = GoogleProvider.from_secret({"refreshToken": "rt"})
+
+    result = provider.sync_events("room@group", "tok-1")
+    assert result.next_token == "tok-2"
+    assert result.deleted_ids == ["old"]
+    assert result.changed[0].start.isoformat() == "2026-11-11T23:00:00+00:00"
+    assert result.to_dict()["changed"][0]["id"] == "e1"
+
+    created = provider.create_calendar("Zasedačka 2", time_zone="Europe/Prague")
+    assert (created.id, created.name) == ("new@group", "Zasedačka 2")
+    assert provider.share_calendar("new@group", "a@firma.cz", role="writer") == "new@group:a@firma.cz:writer"
+    assert (True, True) in clients

@@ -68,6 +68,17 @@ google.delete_event("primary", "booking-42")
 The key is stored in a private extended property (`sourceKey`), so the app never needs Google's event id.
 Writing needs the `calendar` service scopes; reading works with `calendar_readonly`.
 
+Calendars of the app's own and syncing changes back:
+
+```python
+room = google.create_calendar("Zasedačka 1", time_zone="Europe/Prague")   # needs calendar_manage
+google.share_calendar(room.id, "recepce@firma.cz", role="writer")
+
+step = google.sync_events(room.id, token=stored_token, since=start)       # CalendarSyncResult
+# step.changed / step.deleted_ids; store step.next_token. step.full: replace, don't merge.
+# Events the app wrote carry external_key, events people made in Google do not.
+```
+
 Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type
 **Web application** with the app's redirect URI registered.

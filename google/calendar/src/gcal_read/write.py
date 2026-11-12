@@ -13,8 +13,21 @@ from typing import Any
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 
-from .api import EXTERNAL_KEY_PROPERTY, _execute_with_retry, list_events, parse_event
-from .models import BusyInterval, CalendarEvent, EventInput, FreeBusy
+from .api import (
+    EXTERNAL_KEY_PROPERTY,
+    _execute_with_retry,
+    list_events,
+    parse_calendar,
+    parse_event,
+)
+from .models import (
+    BusyInterval,
+    CalendarEvent,
+    CalendarRef,
+    EventInput,
+    EventSync,
+    FreeBusy,
+)
 
 FREEBUSY_MAX_CALENDARS = 50
 
@@ -174,6 +187,113 @@ def free_busy(
                 )
     result.busy.sort(key=lambda b: (b.start, b.calendar_id))
     return result
+
+
+def create_calendar(
+    service: Resource,
+    summary: str,
+    *,
+    time_zone: str = "UTC",
+    description: str = "",
+) -> CalendarRef:
+    """A new secondary calendar owned by the connected account (e.g. one per meeting room)."""
+    if not summary.strip():
+        raise ValueError("A calendar needs a name.")
+    body = {
+        "summary": summary.strip(),
+        "timeZone": time_zone,
+        "description": description,
+    }
+    try:
+        raw = _execute_with_retry(service.calendars().insert(body=body))
+    except HttpError as exc:
+        raise _api_error("create", exc) from exc
+    ref = parse_calendar(raw)
+    return CalendarRef(
+        calendar_id=ref.calendar_id,
+        summary=ref.summary,
+        primary=False,
+        access_role="owner",
+        time_zone=ref.time_zone or time_zone,
+    )
+
+
+ACL_ROLES = ("freeBusyReader", "reader", "writer", "owner")
+
+
+def share_calendar(
+    service: Resource, calendar_id: str, email: str, *, role: str = "reader"
+) -> str:
+    """Give one person (or a group address) access to a calendar. Returns the ACL rule id."""
+    if role not in ACL_ROLES:
+        raise ValueError(
+            f"Unknown calendar role {role!r}. Use one of: {', '.join(ACL_ROLES)}"
+        )
+    body = {"role": role, "scope": {"type": "user", "value": email}}
+    try:
+        raw = _execute_with_retry(
+            service.acl().insert(
+                calendarId=calendar_id, body=body, sendNotifications=False
+            )
+        )
+    except HttpError as exc:
+        raise _api_error("share", exc) from exc
+    return str(raw.get("id") or "")
+
+
+def sync_events(
+    service: Resource,
+    calendar_id: str,
+    sync_token: str | None = None,
+    *,
+    since: datetime | None = None,
+) -> EventSync:
+    """Changes since ``sync_token`` (recurring events expanded). Without a token, or when Google answers 410
+    because the token expired, it reads everything from ``since`` (default: no limit) and sets ``full``.
+    Store ``next_sync_token`` for the next call."""
+    if sync_token:
+        try:
+            return _sync_pages(
+                service, calendar_id, {"syncToken": sync_token}, full=False
+            )
+        except HttpError as exc:
+            if _status(exc) != 410:
+                raise _api_error("sync", exc) from exc
+    base: dict[str, Any] = {}
+    if since is not None:
+        base["timeMin"] = to_rfc3339(since)
+    try:
+        return _sync_pages(service, calendar_id, base, full=True)
+    except HttpError as exc:
+        raise _api_error("sync", exc) from exc
+
+
+def _sync_pages(
+    service: Resource, calendar_id: str, base: dict[str, Any], *, full: bool
+) -> EventSync:
+    result = EventSync(full=full)
+    page_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "calendarId": calendar_id,
+            "singleEvents": True,
+            "maxResults": 250,
+            **base,
+        }
+        if not full:
+            kwargs["showDeleted"] = True
+        if page_token:
+            kwargs["pageToken"] = page_token
+        response = _execute_with_retry(service.events().list(**kwargs))
+        for item in response.get("items", []):
+            if item.get("status") == "cancelled":
+                result.deleted_ids.append(str(item.get("id") or ""))
+            else:
+                result.changed.append(parse_event(item, calendar_id=calendar_id))
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            result.next_sync_token = str(response.get("nextSyncToken") or "")
+            return result
 
 
 def _parse(value: str) -> datetime:

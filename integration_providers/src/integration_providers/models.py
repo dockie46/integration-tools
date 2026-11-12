@@ -117,3 +117,26 @@ class WriteResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class CalendarSyncResult:
+    """Changes in one calendar since the last token. ``full``: the provider started over, so replace what is
+    held for this calendar instead of merging. Store ``next_token`` for the next call."""
+
+    provider: str
+    calendar: str
+    changed: list[CalendarEventItem] = field(default_factory=list)
+    deleted_ids: list[str] = field(default_factory=list)
+    next_token: str = ""
+    full: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "calendar": self.calendar,
+            "changed": [e.to_dict() for e in self.changed],
+            "deleted_ids": list(self.deleted_ids),
+            "next_token": self.next_token,
+            "full": self.full,
+        }

@@ -129,3 +129,14 @@ class FreeBusy:
 
     def for_calendar(self, calendar_id: str) -> list[BusyInterval]:
         return [b for b in self.busy if b.calendar_id == calendar_id]
+
+
+@dataclass(slots=True)
+class EventSync:
+    """One incremental sync step. ``full`` means Google dropped the old token and this is a fresh full read:
+    the caller should replace what it holds for the calendar instead of merging."""
+
+    changed: list[CalendarEvent] = field(default_factory=list)
+    deleted_ids: list[str] = field(default_factory=list)
+    next_sync_token: str = ""
+    full: bool = False

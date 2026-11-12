@@ -18,6 +18,7 @@ from .models import (
     CalendarEventItem,
     CalendarItem,
     CalendarRefItem,
+    CalendarSyncResult,
     EmailItem,
     EventWrite,
     FreeBusyResult,
@@ -88,6 +89,7 @@ class GoogleProvider:
         self._gmail: GmailClient | None = None
         self._calendar: CalendarClient | None = None
         self._calendar_writer: CalendarClient | None = None
+        self._calendar_manager: CalendarClient | None = None
 
     @classmethod
     def available(cls, root: Path) -> bool:
@@ -224,36 +226,43 @@ class GoogleProvider:
     ) -> list[CalendarEventItem]:
         """Events overlapping [start, end) in the selected calendars, times in UTC, ordered by start."""
         calendar_ids = tuple(calendars) if calendars is not None else self._calendar_ids
-        refs = {}
-        for ref in self._cal().list_calendars():
-            refs[ref.calendar_id] = ref
-            if ref.primary:
-                refs["primary"] = ref
+        zones = self._calendar_zones()
         items: list[CalendarEventItem] = []
         for calendar_id in calendar_ids:
-            ref = refs.get(calendar_id)
-            zone = ref.time_zone if ref and ref.time_zone else "UTC"
+            zone = zones.get(calendar_id, "UTC")
             for event in self._cal().list_events_between(calendar_id, start, end):
-                event_start = event.start.as_utc(zone)
-                event_end = event.end.as_utc(zone)
-                if event_start is None or event_end is None:
-                    continue
-                items.append(
-                    CalendarEventItem(
-                        provider=self.name,
-                        id=event.event_id,
-                        calendar=calendar_id,
-                        summary=event.summary,
-                        start=event_start,
-                        end=event_end,
-                        all_day=event.start.all_day,
-                        location=event.location,
-                        busy=event.busy,
-                        external_key=event.external_key,
-                    )
-                )
+                item = self._event_item(event, calendar_id, zone)
+                if item is not None:
+                    items.append(item)
         items.sort(key=lambda item: (item.start, item.calendar))
         return items
+
+    def _calendar_zones(self) -> dict[str, str]:
+        zones: dict[str, str] = {}
+        for ref in self._cal().list_calendars():
+            zone = ref.time_zone or "UTC"
+            zones[ref.calendar_id] = zone
+            if ref.primary:
+                zones["primary"] = zone
+        return zones
+
+    def _event_item(self, event, calendar_id: str, zone: str) -> CalendarEventItem | None:
+        event_start = event.start.as_utc(zone)
+        event_end = event.end.as_utc(zone)
+        if event_start is None or event_end is None:
+            return None
+        return CalendarEventItem(
+            provider=self.name,
+            id=event.event_id,
+            calendar=calendar_id,
+            summary=event.summary,
+            start=event_start,
+            end=event_end,
+            all_day=event.start.all_day,
+            location=event.location,
+            busy=event.busy,
+            external_key=event.external_key,
+        )
 
     def free_busy(
         self,
@@ -290,3 +299,38 @@ class GoogleProvider:
 
     def delete_event(self, calendar_id: str, external_key: str) -> bool:
         return self._writer().delete_event(calendar_id, external_key)
+
+    def _manager(self) -> CalendarClient:
+        if self._secret is None:
+            return self._cal()
+        if self._calendar_manager is None:
+            self._calendar_manager = CalendarClient.from_secret(self._secret, write=True, manage=True)
+        return self._calendar_manager
+
+    def sync_events(
+        self,
+        calendar_id: str,
+        token: str | None = None,
+        *,
+        since: datetime | None = None,
+    ) -> CalendarSyncResult:
+        """Changes since ``token`` (see CalendarSyncResult). Events the app wrote itself carry ``external_key``,
+        so the caller can tell its own bookings from events people made in the calendar."""
+        step = self._cal().sync_events(calendar_id, token, since=since)
+        zone = self._calendar_zones().get(calendar_id, "UTC")
+        changed = [item for event in step.changed if (item := self._event_item(event, calendar_id, zone))]
+        return CalendarSyncResult(
+            provider=self.name,
+            calendar=calendar_id,
+            changed=changed,
+            deleted_ids=list(step.deleted_ids),
+            next_token=step.next_sync_token,
+            full=step.full,
+        )
+
+    def create_calendar(self, name: str, *, time_zone: str = "UTC", description: str = "") -> CalendarRefItem:
+        ref = self._manager().create_calendar(name, time_zone=time_zone, description=description)
+        return CalendarRefItem(provider=self.name, id=ref.calendar_id, name=ref.summary, primary=False)
+
+    def share_calendar(self, calendar_id: str, email: str, *, role: str = "reader") -> str:
+        return self._manager().share_calendar(calendar_id, email, role=role)
