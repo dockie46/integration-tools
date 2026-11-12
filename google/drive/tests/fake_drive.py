@@ -5,7 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import httplib2
+from googleapiclient.errors import HttpError
+
 FOLDER = "application/vnd.google-apps.folder"
+
+
+def _unescape(value: str) -> str:
+    return value.replace("\\'", "'").replace("\\\\", "\\")
 
 
 class _Req:
@@ -22,26 +29,41 @@ class _Files:
 
     def list(self, q: str, **_: Any) -> _Req:
         self._d.calls.append(("list", q))
-        name = (
-            re.search(r"name = '((?:[^'\\]|\\.)*)'", q)
-            .group(1)
-            .replace("\\'", "'")
-            .replace("\\\\", "\\")
+        prop = re.search(
+            r"appProperties has \{ key='(\w+)' and value='((?:[^'\\]|\\.)*)' \}", q
         )
-        parent = re.search(r"'((?:[^'\\]|\\.)*)' in parents", q).group(1)
+        name = re.search(r"name = '((?:[^'\\]|\\.)*)'", q)
+        parent = re.search(r"'((?:[^'\\]|\\.)*)' in parents", q)
         want_folder = "mimeType = " in q
         want_file = "mimeType != " in q
 
         def run():
-            found = [
-                f
-                for f in self._d.items.values()
-                if f["name"] == name
-                and parent in f["parents"]
-                and (not want_folder or f["mimeType"] == FOLDER)
-                and (not want_file or f["mimeType"] != FOLDER)
-            ]
+            found = []
+            for f in self._d.items.values():
+                if f.get("trashed"):
+                    continue
+                if prop and (f.get("appProperties") or {}).get(
+                    prop.group(1)
+                ) != _unescape(prop.group(2)):
+                    continue
+                if name and f["name"] != _unescape(name.group(1)):
+                    continue
+                if parent and _unescape(parent.group(1)) not in f["parents"]:
+                    continue
+                if want_folder and f["mimeType"] != FOLDER:
+                    continue
+                if want_file and f["mimeType"] == FOLDER:
+                    continue
+                found.append(dict(f))
             return {"files": found[:2]}
+
+        return _Req(run)
+
+    def get(self, fileId: str, fields: str = "") -> _Req:  # noqa: ARG002, N803 - Google API names
+        def run():
+            if fileId not in self._d.items:
+                raise HttpError(httplib2.Response({"status": 404}), b"{}")
+            return dict(self._d.items[fileId])
 
         return _Req(run)
 
@@ -49,43 +71,52 @@ class _Files:
         def run():
             self._d.next_id += 1
             file_id = f"id{self._d.next_id}"
-            size = len(media_body._fd.getvalue()) if media_body is not None else 0
-            mime = body.get("mimeType") or (
-                media_body.mimetype() if media_body is not None else ""
-            )
+            data = media_body._fd.getvalue() if media_body is not None else b""
             self._d.items[file_id] = {
                 "id": file_id,
                 "name": body["name"],
                 "parents": body["parents"],
-                "mimeType": mime,
-                "size": str(size),
+                "mimeType": body.get("mimeType")
+                or (media_body.mimetype() if media_body is not None else ""),
+                "size": str(len(data)),
+                "appProperties": dict(body.get("appProperties") or {}),
             }
-            self._d.contents[file_id] = (
-                media_body._fd.getvalue() if media_body is not None else b""
-            )
+            self._d.contents[file_id] = data
             self._d.calls.append(("create", body["name"]))
             return dict(self._d.items[file_id])
 
         return _Req(run)
 
-    def update(self, fileId: str, media_body: Any, fields: str = "") -> _Req:  # noqa: ARG002, N803 - Google API names
+    def update(
+        self,
+        fileId: str,  # noqa: N803 - Google API name
+        body: dict | None = None,
+        media_body: Any = None,
+        fields: str = "",  # noqa: ARG002
+    ) -> _Req:
         def run():
-            data = media_body._fd.getvalue()
-            self._d.contents[fileId] = data
-            self._d.items[fileId]["size"] = str(len(data))
+            item = self._d.items[fileId]
+            if body and "name" in body:
+                item["name"] = body["name"]
+            if media_body is not None:
+                data = media_body._fd.getvalue()
+                self._d.contents[fileId] = data
+                item["size"] = str(len(data))
             self._d.calls.append(("update", fileId))
-            return dict(self._d.items[fileId])
+            return dict(item)
 
         return _Req(run)
 
-    def delete(self, fileId: str) -> _Req:  # noqa: N803 - Google's name
+    def delete(self, fileId: str) -> _Req:  # noqa: N803 - Google API name
         def run():
-            self._d.items.pop(fileId, None)
+            if fileId not in self._d.items:
+                raise HttpError(httplib2.Response({"status": 404}), b"{}")
+            self._d.items.pop(fileId)
             self._d.calls.append(("delete", fileId))
 
         return _Req(run)
 
-    def get_media(self, fileId: str) -> Any:  # noqa: N803 - Google's name
+    def get_media(self, fileId: str) -> Any:  # noqa: N803 - Google API name
         return ("media", fileId)
 
 

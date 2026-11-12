@@ -1,4 +1,8 @@
-"""Drive as a file store: a key like ``smlouvy/2026/x.pdf`` is a file in nested folders under one root folder.
+"""Drive as a file store for apps.
+
+A file has three things: the app's ``key`` (unique, stored on the file as an app property), the ``name`` people
+see (may repeat, can be renamed) and the ``folder`` it sits in (a path under the root, for people browsing).
+Drive's own file id is the stable reference the app keeps; get / stat / delete / rename take it.
 
 With the ``drive.file`` scope the app sees only what it created (or what the user picked for it), so the root
 folder is the app's own: ``folderId`` from the secret, otherwise a folder named ``rootFolderName`` (default
@@ -7,6 +11,7 @@ folder is the app's own: ``folderId`` from the secret, otherwise a folder named 
 
 from __future__ import annotations
 
+import hashlib
 import io
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -28,6 +33,8 @@ RESUMABLE_THRESHOLD = 5 * 1024 * 1024
 # Google keeps a resumable upload session for a week.
 SESSION_LIFETIME = timedelta(days=7)
 _FIELDS = "id,name,mimeType,size,modifiedTime"
+# Private app property holding the app's own key for a file (Drive's id is the reference the app stores).
+KEY_PROPERTY = "sourceKey"
 
 
 class DriveError(RuntimeError):
@@ -161,37 +168,73 @@ class DriveClient:
                 return None
         return parent
 
-    def _find(self, key: str) -> tuple[str | None, dict[str, Any] | None, str]:
-        parts = split_key(key)
-        folder = self._folder_for(parts[:-1], create=False)
-        if folder is None:
-            return None, None, parts[-1]
-        return folder, self._child(folder, parts[-1], folder=False), parts[-1]
+    # --- files: a stable key (appProperties) and Drive's own id as the reference -------------
 
-    # --- files -----------------------------------------------------------------------------
+    @staticmethod
+    def _key_value(key: str) -> str:
+        """The app's key as stored on the file. Drive caps one property at 124 bytes, so long keys are hashed."""
+        normalized = "/".join(split_key(key))
+        if len((KEY_PROPERTY + normalized).encode("utf-8")) <= 124:
+            return normalized
+        return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def locate(self, key: str) -> DriveFile | None:
+        """The file the app wrote under ``key`` (wherever it sits now), or None."""
+        value = self._key_value(key)
+        query = (
+            f"appProperties has {{ key='{KEY_PROPERTY}' and value='{_q(value)}' }} "
+            f"and trashed = false and mimeType != '{FOLDER_MIME}'"
+        )
+        try:
+            response = (
+                self.service.files()
+                .list(q=query, fields=f"files({_FIELDS})", pageSize=2, spaces="drive")
+                .execute()
+            )
+        except HttpError as exc:
+            raise _error("lookup", exc) from exc
+        files = response.get("files") or []
+        return _file(files[0]) if files else None
 
     def put(
-        self, key: str, data: bytes, content_type: str = "application/octet-stream"
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        *,
+        name: str | None = None,
+        folder: str | None = None,
     ) -> DriveFile:
-        """Create or replace the file at ``key`` (folders are created as needed)."""
-        parts = split_key(key)
-        folder = self._folder_for(parts[:-1], create=True)
-        assert folder is not None
-        existing = self._child(folder, parts[-1], folder=False)
+        """Write the file the app knows as ``key``: shown as ``name`` (default: the key's last part) in
+        ``folder`` (a path under the root, created as needed). The same key again replaces the content."""
+        display = (name or split_key(key)[-1]).strip() or split_key(key)[-1]
         media = MediaIoBaseUpload(
             io.BytesIO(data),
             mimetype=content_type,
             resumable=len(data) > RESUMABLE_THRESHOLD,
         )
+        existing = self.locate(key)
         try:
             if existing:
                 raw = (
                     self.service.files()
-                    .update(fileId=existing["id"], media_body=media, fields=_FIELDS)
+                    .update(
+                        fileId=existing.file_id,
+                        body={"name": display},
+                        media_body=media,
+                        fields=_FIELDS,
+                    )
                     .execute()
                 )
             else:
-                body = {"name": parts[-1], "parents": [folder]}
+                parent = self._folder_for(
+                    split_key(folder) if folder else [], create=True
+                )
+                body = {
+                    "name": display,
+                    "parents": [parent],
+                    "appProperties": {KEY_PROPERTY: self._key_value(key)},
+                }
                 raw = (
                     self.service.files()
                     .create(body=body, media_body=media, fields=_FIELDS)
@@ -201,57 +244,76 @@ class DriveClient:
             raise _error("upload", exc) from exc
         return _file(raw)
 
-    def stat(self, key: str) -> DriveFile | None:
-        _, found, _ = self._find(key)
-        return _file(found) if found else None
+    def stat(self, file_id: str) -> DriveFile | None:
+        try:
+            raw = (
+                self.service.files()
+                .get(fileId=file_id, fields=_FIELDS + ",trashed")
+                .execute()
+            )
+        except HttpError as exc:
+            if _status(exc) == 404:
+                return None
+            raise _error("lookup", exc) from exc
+        return None if raw.get("trashed") else _file(raw)
 
-    def get(self, key: str) -> tuple[DriveFile, bytes]:
-        _, found, _ = self._find(key)
-        if not found:
-            raise FileNotFoundError(f"No Drive file at '{key}'.")
+    def get(self, file_id: str) -> tuple[DriveFile, bytes]:
+        info = self.stat(file_id)
+        if info is None:
+            raise FileNotFoundError(f"No Drive file with id '{file_id}'.")
         buffer = io.BytesIO()
         try:
             downloader = MediaIoBaseDownload(
-                buffer, self.service.files().get_media(fileId=found["id"])
+                buffer, self.service.files().get_media(fileId=file_id)
             )
             done = False
             while not done:
                 _, done = downloader.next_chunk()
         except HttpError as exc:
             raise _error("download", exc) from exc
-        return _file(found), buffer.getvalue()
+        return info, buffer.getvalue()
 
-    def delete(self, key: str) -> bool:
-        _, found, _ = self._find(key)
-        if not found:
-            return False
+    def delete(self, file_id: str) -> bool:
         try:
-            self.service.files().delete(fileId=found["id"]).execute()
+            self.service.files().delete(fileId=file_id).execute()
         except HttpError as exc:
             if _status(exc) == 404:
                 return False
             raise _error("delete", exc) from exc
         return True
 
+    def rename(self, file_id: str, name: str) -> DriveFile:
+        if not name.strip():
+            raise ValueError("A file needs a name.")
+        try:
+            raw = (
+                self.service.files()
+                .update(fileId=file_id, body={"name": name.strip()}, fields=_FIELDS)
+                .execute()
+            )
+        except HttpError as exc:
+            raise _error("rename", exc) from exc
+        return _file(raw)
+
     def start_upload(
         self,
         key: str,
         content_type: str,
         *,
+        name: str | None = None,
+        folder: str | None = None,
         size: int | None = None,
         origin: str | None = None,
         now: datetime | None = None,
     ) -> tuple[str, datetime]:
         """A resumable upload session the browser PUTs the bytes to directly. ``origin`` (the app's web origin)
-        makes Google answer the browser's CORS requests. Returns (session_url, expires_at)."""
+        makes Google answer the browser's CORS requests. Afterwards ``locate(key)`` finds the file.
+        Returns (session_url, expires_at)."""
         if self._session is None:
             raise DriveError(
                 "Resumable uploads need an authorized session (use DriveClient.from_secret)."
             )
-        parts = split_key(key)
-        folder = self._folder_for(parts[:-1], create=True)
-        assert folder is not None
-        existing = self._child(folder, parts[-1], folder=False)
+        display = (name or split_key(key)[-1]).strip() or split_key(key)[-1]
         headers = {
             "X-Upload-Content-Type": content_type,
             "Content-Type": "application/json; charset=UTF-8",
@@ -260,17 +322,23 @@ class DriveClient:
             headers["X-Upload-Content-Length"] = str(size)
         if origin:
             headers["Origin"] = origin
+        existing = self.locate(key)
         if existing:
             response = self._session.patch(
-                f"{UPLOAD_URI}/{existing['id']}?uploadType=resumable",
-                json={},
+                f"{UPLOAD_URI}/{existing.file_id}?uploadType=resumable",
+                json={"name": display},
                 headers=headers,
                 timeout=30,
             )
         else:
+            parent = self._folder_for(split_key(folder) if folder else [], create=True)
             response = self._session.post(
                 f"{UPLOAD_URI}?uploadType=resumable",
-                json={"name": parts[-1], "parents": [folder]},
+                json={
+                    "name": display,
+                    "parents": [parent],
+                    "appProperties": {KEY_PROPERTY: self._key_value(key)},
+                },
                 headers=headers,
                 timeout=30,
             )

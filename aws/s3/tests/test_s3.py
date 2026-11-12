@@ -7,7 +7,7 @@ import pytest
 from botocore.config import Config
 from botocore.response import StreamingBody
 from botocore.stub import ANY, Stubber
-from s3files import S3Error, S3Files, normalize_key
+from s3files import S3Error, S3Files, content_disposition, normalize_key
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
 
@@ -44,36 +44,46 @@ def test_normalize_key_rejects(key):
         normalize_key(key)
 
 
-def test_put_uses_prefix_and_content_type(files):
+def test_object_key_joins_prefix_folder_and_key():
+    store = S3Files(_client(), "docs", prefix="/prod/")
+
+    assert store.object_key("c1/f1", folder="Smlouvy/2026") == "prod/Smlouvy/2026/c1/f1"
+    assert store.object_key("c1/f1") == "prod/c1/f1"
+
+
+def test_put_returns_the_object_key_as_ref(files):
     store, stub = files
     stub.add_response(
         "put_object",
         {"ETag": '"abc"'},
         {
             "Bucket": "docs",
-            "Key": "firma-1/smlouvy/a.pdf",
+            "Key": "firma-1/Smlouvy/c1/f1",
             "Body": ANY,
             "ContentType": "application/pdf",
+            "Metadata": {"name": "smlouva%20%C4%8D.%201.pdf"},
         },
     )
 
-    info = store.put("smlouvy/a.pdf", b"%PDF", "application/pdf")
+    info = store.put(
+        "c1/f1", b"%PDF", "application/pdf", name="smlouva č. 1.pdf", folder="Smlouvy"
+    )
 
-    assert (info.key, info.size, info.etag) == ("smlouvy/a.pdf", 4, "abc")
+    assert (info.key, info.size, info.etag) == ("firma-1/Smlouvy/c1/f1", 4, "abc")
 
 
-def test_get_returns_bytes(files):
+def test_get_by_ref_does_not_add_the_prefix_again(files):
     store, stub = files
     stub.add_response(
         "get_object",
         {"Body": StreamingBody(io.BytesIO(b"hello"), 5), "ContentType": "text/plain"},
-        {"Bucket": "docs", "Key": "firma-1/a.txt"},
+        {"Bucket": "docs", "Key": "firma-1/c1/f1"},
     )
 
-    info, data = store.get("a.txt")
+    info, data = store.get("firma-1/c1/f1")
 
     assert data == b"hello"
-    assert info.content_type == "text/plain"
+    assert info.key == "firma-1/c1/f1"
 
 
 def test_get_missing_raises_file_not_found(files):
@@ -83,19 +93,24 @@ def test_get_missing_raises_file_not_found(files):
     )
 
     with pytest.raises(FileNotFoundError):
-        store.get("missing.txt")
+        store.get("firma-1/missing")
 
 
-def test_delete_reports_whether_it_existed(files):
+def test_locate_and_delete(files):
     store, stub = files
+    stub.add_response(
+        "head_object",
+        {"ContentLength": 3, "ContentType": "text/plain"},
+        {"Bucket": "docs", "Key": "firma-1/c1/f1"},
+    )
+    assert store.locate("c1/f1").size == 3
+
     stub.add_client_error("head_object", service_error_code="404", http_status_code=404)
-    assert store.delete("gone.txt") is False
+    assert store.delete("firma-1/gone") is False
 
     stub.add_response("head_object", {"ContentLength": 3, "ContentType": "text/plain"})
-    stub.add_response(
-        "delete_object", {}, {"Bucket": "docs", "Key": "firma-1/here.txt"}
-    )
-    assert store.delete("here.txt") is True
+    stub.add_response("delete_object", {}, {"Bucket": "docs", "Key": "firma-1/c1/f1"})
+    assert store.delete("firma-1/c1/f1") is True
 
 
 def test_check_explains_missing_bucket(files):
@@ -109,18 +124,26 @@ def test_check_explains_missing_bucket(files):
 def test_presigned_urls_are_signed_for_the_key():
     store = S3Files(_client(), "docs", prefix="firma-1")
 
-    url, expires = store.upload_url(
-        "video/big.mp4", "video/mp4", lifetime=timedelta(minutes=5), now=NOW
+    url, expires, ref = store.upload_url(
+        "c1/f9", "video/mp4", folder="Videa", lifetime=timedelta(minutes=5), now=NOW
     )
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
-    assert parsed.path == "/docs/firma-1/video/big.mp4"
+    assert ref == "firma-1/Videa/c1/f9"
+    assert parsed.path == "/docs/firma-1/Videa/c1/f9"
     assert query["X-Amz-Expires"] == ["300"]
     assert "content-type" in query["X-Amz-SignedHeaders"][0]
     assert expires == NOW + timedelta(minutes=5)
 
-    url, _ = store.download_url("video/big.mp4", filename='big "1".mp4')
-    assert "response-content-disposition" in urlparse(url).query
+    url, _ = store.download_url(ref, filename="prezentace č. 1.mp4")
+    disposition = parse_qs(urlparse(url).query)["response-content-disposition"][0]
+    assert disposition == content_disposition("prezentace č. 1.mp4")
+
+
+def test_content_disposition_has_ascii_fallback_and_utf8_name():
+    assert content_disposition('smlouva "č. 1".pdf') == (
+        "attachment; filename=\"smlouva . 1.pdf\"; filename*=UTF-8''smlouva%20%22%C4%8D.%201%22.pdf"
+    )
 
 
 def test_from_secret_requires_bucket():

@@ -80,24 +80,28 @@ step = google.sync_events(room.id, token=stored_token, since=start)       # Cale
 # Events the app wrote carry external_key, events people made in Google do not.
 ```
 
-Files, wherever the connection keeps them (Google Drive or S3; OneDrive later):
+Files, wherever the connection keeps them (Google Drive or S3; OneDrive later). The app's **key** is unique
+and never taken from what people type; the **name** people see may repeat and can change; **put returns a
+`ref`** the app stores and uses for everything after:
 
 ```python
 from integration_providers import open_file_store
 
-store = open_file_store(secret)                      # secret["provider"]: google/gdrive -> Drive, s3/aws -> S3
-store.put("smlouvy/2026/najem.pdf", data, "application/pdf")
-info, data = store.get("smlouvy/2026/najem.pdf")     # FileNotFoundError when missing
-store.delete("smlouvy/2026/najem.pdf")               # False when it was not there
-target = store.upload_target("video/big.mp4", "video/mp4", size=n, origin="https://app.example.com")
-# browser: PUT target.url with target.headers (S3 presigned URL / Drive resumable session)
-store.download_url("smlouvy/2026/najem.pdf")         # presigned link on S3, None on Drive (stream via get)
+store = open_file_store(secret, location={"bucket": "docs", "prefix": "prod"})  # location: app settings
+info = store.put("c1/f9", data, "application/pdf", name="smlouva.pdf", folder="Smlouvy")
+store.get(info.ref); store.stat(info.ref); store.delete(info.ref)
+store.rename(info.ref, "smlouva-2026.pdf")           # mirrors the name on Drive; nothing on S3
+target = store.upload_target("c1/f10", "video/mp4", name="video.mp4", folder="Videa", size=n,
+                             origin="https://app.example.com")
+# browser: PUT target.url with target.headers; then store.locate("c1/f10", folder="Videa") -> FileInfo
+store.download_url(info.ref, filename="smlouva.pdf")  # presigned link on S3, None on Drive (stream via get)
 store.check()                                        # StoreCheck(ok, detail): account email / bucket
 ```
 
-Drive keeps keys as nested folders under the app's own root folder (`folderId` in the secret, else a
-"Softwareify" folder it creates; the `drive.file` scope sees nothing else). S3 takes `bucket`, `region`,
-optional `prefix`, `endpointUrl` (LocalStack, MinIO, R2) and keys (else the Lambda's role).
+On S3 the ref is the object key (`prefix/folder/key`) and the download link carries the name. On Drive the ref is
+Drive's file id; the file is shown under its name in the folder (same names are fine) and keeps the app's key as
+an app property. Drive files live under the app's root folder (`folderId`, else a "Softwareify" folder it
+creates; the `drive.file` scope sees nothing else).
 
 Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type

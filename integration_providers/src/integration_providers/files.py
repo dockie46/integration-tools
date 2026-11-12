@@ -1,13 +1,18 @@
 """One way to store files, whichever service holds them.
 
-The caller says "put this file at this key"; the connection's secret decides where it goes::
+A file has the app's own ``key`` (unique and never derived from what people type, e.g. ``<company>/<file id>``),
+a ``name`` people see (may repeat, can change) and a ``folder`` for people browsing the store. ``put`` returns a
+``FileInfo`` whose ``ref`` is the stable reference the app keeps; get / stat / delete / rename / download_url take
+that ref. Renaming in the app changes its database; ``rename`` only mirrors the name where people can see it (Drive).
 
-    store = open_file_store(secret)          # secret["provider"]: "google" / "gdrive" -> Drive, "s3" / "aws" -> S3
-    store.put("smlouvy/2026/najemni.pdf", data, "application/pdf")
-    target = store.upload_target("video/velke.mp4", "video/mp4", size=…, origin="https://app.example.com")
+The connection's secret says where credentials come from; ``location`` (from the app's storage settings: bucket,
+region, prefix, folderId, rootFolderName) says where files go and wins over the same keys in the secret::
 
-Keys are relative paths (``a/b/c.pdf``): no leading slash, no ``..``. Missing files raise ``FileNotFoundError``,
-anything the service refuses raises ``FileStoreError``.
+    store = open_file_store(secret, location={"bucket": "docs", "prefix": "prod"})
+    info = store.put("c1/f9", data, "application/pdf", name="smlouva.pdf", folder="Smlouvy")
+    store.get(info.ref)
+
+Missing files raise ``FileNotFoundError``; anything the service refuses raises ``FileStoreError``.
 """
 
 from __future__ import annotations
@@ -25,9 +30,10 @@ class FileStoreError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class FileInfo:
     provider: str
-    key: str
+    ref: str
     size: int
     content_type: str
+    name: str = ""
     modified: datetime | None = None
 
     def to_dict(self) -> dict:
@@ -38,7 +44,8 @@ class FileInfo:
 
 @dataclass(frozen=True, slots=True)
 class UploadTarget:
-    """Where the browser sends a large file itself: ``method`` to ``url`` with ``headers``, before ``expires_at``."""
+    """Where the browser sends a large file itself: ``method`` to ``url`` with ``headers``, before ``expires_at``.
+    ``ref`` is known up front on S3; on Drive it is empty and ``locate(key)`` finds the file afterwards."""
 
     provider: str
     key: str
@@ -46,6 +53,7 @@ class UploadTarget:
     method: str
     expires_at: datetime
     headers: dict[str, str] = field(default_factory=dict)
+    ref: str = ""
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -68,25 +76,37 @@ class FileStore(Protocol):
     def name(self) -> str: ...
 
     def put(
-        self, key: str, data: bytes, content_type: str = "application/octet-stream"
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        *,
+        name: str | None = None,
+        folder: str | None = None,
     ) -> FileInfo: ...
 
-    def get(self, key: str) -> tuple[FileInfo, bytes]: ...
+    def locate(self, key: str, *, folder: str | None = None) -> FileInfo | None: ...
 
-    def stat(self, key: str) -> FileInfo | None: ...
+    def stat(self, ref: str) -> FileInfo | None: ...
 
-    def delete(self, key: str) -> bool: ...
+    def get(self, ref: str) -> tuple[FileInfo, bytes]: ...
+
+    def delete(self, ref: str) -> bool: ...
+
+    def rename(self, ref: str, name: str) -> None: ...
 
     def upload_target(
         self,
         key: str,
         content_type: str,
         *,
+        name: str | None = None,
+        folder: str | None = None,
         size: int | None = None,
         origin: str | None = None,
     ) -> UploadTarget: ...
 
-    def download_url(self, key: str, *, filename: str | None = None) -> str | None:
+    def download_url(self, ref: str, *, filename: str | None = None) -> str | None:
         """A link the browser can fetch directly, or None when the service has none (Drive): stream via get()."""
         ...
 
@@ -105,45 +125,66 @@ class DriveFileStore:
 
         return cls(DriveClient.from_secret(secret))
 
-    def _info(self, key: str, raw: Any) -> FileInfo:
-        return FileInfo(self.name, key, raw.size, raw.content_type, raw.modified)
-
-    def put(
-        self, key: str, data: bytes, content_type: str = "application/octet-stream"
-    ) -> FileInfo:
-        return self._info(
-            key, self._guard(lambda: self._client.put(key, data, content_type))
+    def _info(self, raw: Any) -> FileInfo:
+        return FileInfo(
+            self.name, raw.file_id, raw.size, raw.content_type, raw.name, raw.modified
         )
 
-    def get(self, key: str) -> tuple[FileInfo, bytes]:
-        raw, data = self._guard(lambda: self._client.get(key))
-        return self._info(key, raw), data
+    def put(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        *,
+        name: str | None = None,
+        folder: str | None = None,
+    ) -> FileInfo:
+        return self._info(
+            self._guard(
+                lambda: self._client.put(
+                    key, data, content_type, name=name, folder=folder
+                )
+            )
+        )
 
-    def stat(self, key: str) -> FileInfo | None:
-        raw = self._guard(lambda: self._client.stat(key))
-        return self._info(key, raw) if raw else None
+    def locate(self, key: str, *, folder: str | None = None) -> FileInfo | None:  # noqa: ARG002 - found by key
+        raw = self._guard(lambda: self._client.locate(key))
+        return self._info(raw) if raw else None
 
-    def delete(self, key: str) -> bool:
-        return bool(self._guard(lambda: self._client.delete(key)))
+    def stat(self, ref: str) -> FileInfo | None:
+        raw = self._guard(lambda: self._client.stat(ref))
+        return self._info(raw) if raw else None
+
+    def get(self, ref: str) -> tuple[FileInfo, bytes]:
+        raw, data = self._guard(lambda: self._client.get(ref))
+        return self._info(raw), data
+
+    def delete(self, ref: str) -> bool:
+        return bool(self._guard(lambda: self._client.delete(ref)))
+
+    def rename(self, ref: str, name: str) -> None:
+        self._guard(lambda: self._client.rename(ref, name))
 
     def upload_target(
         self,
         key: str,
         content_type: str,
         *,
+        name: str | None = None,
+        folder: str | None = None,
         size: int | None = None,
         origin: str | None = None,
     ) -> UploadTarget:
         url, expires = self._guard(
             lambda: self._client.start_upload(
-                key, content_type, size=size, origin=origin
+                key, content_type, name=name, folder=folder, size=size, origin=origin
             )
         )
         return UploadTarget(
             self.name, key, url, "PUT", expires, {"Content-Type": content_type}
         )
 
-    def download_url(self, key: str, *, filename: str | None = None) -> str | None:  # noqa: ARG002 - FileStore shape
+    def download_url(self, ref: str, *, filename: str | None = None) -> str | None:  # noqa: ARG002 - FileStore shape
         return None
 
     def check(self) -> StoreCheck:
@@ -176,42 +217,62 @@ class S3FileStore:
 
         return cls(S3Files.from_secret(secret))
 
-    def _info(self, raw: Any) -> FileInfo:
-        return FileInfo(self.name, raw.key, raw.size, raw.content_type, raw.modified)
-
-    def put(
-        self, key: str, data: bytes, content_type: str = "application/octet-stream"
-    ) -> FileInfo:
-        return self._info(
-            self._guard(lambda: self._client.put(key, data, content_type))
+    def _info(self, raw: Any, name: str = "") -> FileInfo:
+        return FileInfo(
+            self.name, raw.key, raw.size, raw.content_type, name, raw.modified
         )
 
-    def get(self, key: str) -> tuple[FileInfo, bytes]:
-        raw, data = self._guard(lambda: self._client.get(key))
-        return self._info(raw), data
+    def put(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        *,
+        name: str | None = None,
+        folder: str | None = None,
+    ) -> FileInfo:
+        raw = self._guard(
+            lambda: self._client.put(key, data, content_type, name=name, folder=folder)
+        )
+        return self._info(raw, name or "")
 
-    def stat(self, key: str) -> FileInfo | None:
-        raw = self._guard(lambda: self._client.stat(key))
+    def locate(self, key: str, *, folder: str | None = None) -> FileInfo | None:
+        raw = self._guard(lambda: self._client.locate(key, folder=folder))
         return self._info(raw) if raw else None
 
-    def delete(self, key: str) -> bool:
-        return bool(self._guard(lambda: self._client.delete(key)))
+    def stat(self, ref: str) -> FileInfo | None:
+        raw = self._guard(lambda: self._client.stat(ref))
+        return self._info(raw) if raw else None
+
+    def get(self, ref: str) -> tuple[FileInfo, bytes]:
+        raw, data = self._guard(lambda: self._client.get(ref))
+        return self._info(raw), data
+
+    def delete(self, ref: str) -> bool:
+        return bool(self._guard(lambda: self._client.delete(ref)))
+
+    def rename(self, ref: str, name: str) -> None:
+        """Nothing to do: the name people see lives in the app and in the download link."""
 
     def upload_target(
         self,
         key: str,
         content_type: str,
         *,
-        size: int | None = None,  # noqa: ARG002 - presigned PUT needs no size
+        name: str | None = None,  # noqa: ARG002 - the app keeps the name
+        folder: str | None = None,
+        size: int | None = None,  # noqa: ARG002 - a presigned PUT needs no size
         origin: str | None = None,  # noqa: ARG002 - S3 CORS is set on the bucket
     ) -> UploadTarget:
-        url, expires = self._guard(lambda: self._client.upload_url(key, content_type))
+        url, expires, ref = self._guard(
+            lambda: self._client.upload_url(key, content_type, folder=folder)
+        )
         return UploadTarget(
-            self.name, key, url, "PUT", expires, {"Content-Type": content_type}
+            self.name, key, url, "PUT", expires, {"Content-Type": content_type}, ref
         )
 
-    def download_url(self, key: str, *, filename: str | None = None) -> str | None:
-        url, _ = self._guard(lambda: self._client.download_url(key, filename=filename))
+    def download_url(self, ref: str, *, filename: str | None = None) -> str | None:
+        url, _ = self._guard(lambda: self._client.download_url(ref, filename=filename))
         return url
 
     def check(self) -> StoreCheck:
@@ -240,12 +301,36 @@ FILE_STORES: dict[str, Callable[[Mapping[str, Any]], FileStore]] = {
     "aws": S3FileStore.from_secret,
 }
 
+LOCATION_KEYS = (
+    "bucket",
+    "region",
+    "prefix",
+    "endpointUrl",
+    "folderId",
+    "rootFolderName",
+)
+
 
 def open_file_store(
-    secret: Mapping[str, Any], *, provider: str | None = None
+    secret: Mapping[str, Any],
+    *,
+    provider: str | None = None,
+    location: Mapping[str, Any] | None = None,
 ) -> FileStore:
-    """The file store for a connection. ``provider`` overrides the secret's ``provider`` field."""
-    lower = {str(k).lower(): v for k, v in secret.items()}
+    """The file store for a connection. ``provider`` overrides the secret's ``provider``; ``location`` (non-secret
+    storage settings) overrides the same keys in the secret. Credentials are never taken from ``location``."""
+    merged = {str(k): v for k, v in secret.items()}
+    for key, value in (location or {}).items():
+        if key not in LOCATION_KEYS:
+            raise FileStoreError(
+                f"Unknown storage setting {key!r}. Known: {', '.join(LOCATION_KEYS)}"
+            )
+        if value is None or str(value).strip() == "":
+            continue
+        for existing in [k for k in merged if k.lower() == key.lower()]:
+            del merged[existing]
+        merged[key] = value
+    lower = {k.lower(): v for k, v in merged.items()}
     name = (provider or str(lower.get("provider") or "")).strip().lower()
     factory = FILE_STORES.get(name)
     if factory is None:
@@ -253,4 +338,4 @@ def open_file_store(
         raise FileStoreError(
             f"No file storage for provider {name or '(none)'!r}. Known: {known}"
         )
-    return factory(secret)
+    return factory(merged)
