@@ -10,7 +10,8 @@ make test
 
 ```
 integration-tools/
-  google/                  # OAuth, Gmail, Calendar
+  google/                  # OAuth, Gmail, Calendar, Drive
+  aws/s3/                  # S3 files (s3files)
   icloud/                  # IMAP + CalDAV
   integration_providers/   # factory package (import: integration_providers)
   credentials/             # secrets — never commit
@@ -78,6 +79,29 @@ step = google.sync_events(room.id, token=stored_token, since=start)       # Cale
 # step.changed / step.deleted_ids; store step.next_token. step.full: replace, don't merge.
 # Events the app wrote carry external_key, events people made in Google do not.
 ```
+
+Files, wherever the connection keeps them (Google Drive or S3; OneDrive later). The app's **key** is unique
+and never taken from what people type; the **name** people see may repeat and can change; **put returns a
+`ref`** the app stores and uses for everything after:
+
+```python
+from integration_providers import open_file_store
+
+store = open_file_store(secret, location={"bucket": "docs", "prefix": "prod"})  # location: app settings
+info = store.put("c1/f9", data, "application/pdf", name="smlouva.pdf", folder="Smlouvy")
+store.get(info.ref); store.stat(info.ref); store.delete(info.ref)
+store.rename(info.ref, "smlouva-2026.pdf")           # mirrors the name on Drive; nothing on S3
+target = store.upload_target("c1/f10", "video/mp4", name="video.mp4", folder="Videa", size=n,
+                             origin="https://app.example.com")
+# browser: PUT target.url with target.headers; then store.locate("c1/f10", folder="Videa") -> FileInfo
+store.download_url(info.ref, filename="smlouva.pdf")  # presigned link on S3, None on Drive (stream via get)
+store.check()                                        # StoreCheck(ok, detail): account email / bucket
+```
+
+On S3 the ref is the object key (`prefix/folder/key`) and the download link carries the name. On Drive the ref is
+Drive's file id; the file is shown under its name in the folder (same names are fine) and keeps the app's key as
+an app property. Drive files live under the app's root folder (`folderId`, else a "Softwareify" folder it
+creates; the `drive.file` scope sees nothing else).
 
 Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean "connect the account
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type

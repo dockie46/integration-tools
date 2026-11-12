@@ -1,0 +1,18 @@
+[project]
+name = "gdrive"
+version = "0.1.0"
+description = "Google Drive files for apps: folders by path, upload/download, resumable upload sessions."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-oauth",
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.0.0",
+    "requests>=2.31",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"

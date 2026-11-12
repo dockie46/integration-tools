@@ -24,6 +24,8 @@ members = [
     "google/oauth",
     "google/gmail",
     "google/calendar",
+    "google/drive",
+    "aws/s3",
     "icloud",
     "integration_providers",
 ]
@@ -32,6 +34,8 @@ members = [
 google-oauth = { workspace = true }
 gmail-read = { workspace = true }
 gcal-read = { workspace = true }
+gdrive = { workspace = true }
+s3files = { workspace = true }
 icloud-read = { workspace = true }
 integration-providers = { workspace = true }
 
@@ -44,6 +48,8 @@ default = true
 testpaths = [
     "google/oauth/tests",
     "google/calendar/tests",
+    "google/drive/tests",
+    "aws/s3/tests",
     "google/gmail/tests",
     "integration_providers/tests",
     "icloud/tests",
@@ -54,9 +60,12 @@ pythonpath = [
     "google/calendar/tests",
     "google/oauth/src",
     "google/calendar/src",
+    "google/drive/src",
+    "google/drive/tests",
+    "aws/s3/src",
     "icloud/src",
     "integration_providers/src",
 ]
 
 [tool.pylint.main]
-init-hook = "import sys; sys.path.extend(['integration_providers/src', 'google/gmail/src', 'google/oauth/src', 'google/calendar/src', 'icloud/src'])"
+init-hook = "import sys; sys.path.extend(['integration_providers/src', 'google/gmail/src', 'google/oauth/src', 'google/calendar/src', 'google/drive/src', 'aws/s3/src', 'icloud/src'])"

@@ -1,7 +1,7 @@
 [project]
 name = "integration-providers"
 version = "0.1.0"
-description = "Provider factory over mail/calendar integrations (Google, iCloud, …)."
+description = "Provider factory over mail, calendar and file integrations (Google, iCloud, S3, …)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
@@ -9,6 +9,8 @@ dependencies = [
     "gcal-read",
     "google-oauth",
     "icloud-read",
+    "gdrive",
+    "s3files",
 ]
 
 [build-system]
