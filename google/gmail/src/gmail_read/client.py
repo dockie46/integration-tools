@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
+from google_oauth.scopes import SERVICE_SCOPES
+from google_oauth.secret import credentials_from_secret
 from googleapiclient.discovery import Resource
 
 from . import gmail as gmail_mod
@@ -34,6 +38,12 @@ class GmailClient:
     def from_env(cls) -> GmailClient:
         """Headless auth for Lambda: refresh token from GMAIL_TOKEN_JSON."""
         creds = load_credentials_from_env()
+        return cls(gmail_mod.build_service(creds))
+
+    @classmethod
+    def from_secret(cls, secret: Mapping[str, Any]) -> GmailClient:
+        """Multi-tenant / Lambda: a stored web-OAuth secret (see google_oauth.web.TokenGrant.to_secret)."""
+        creds = credentials_from_secret(secret, required_scopes=SERVICE_SCOPES["gmail"])
         return cls(gmail_mod.build_service(creds))
 
     def search(self, query: str, max_messages: int | None = None) -> list[str]:

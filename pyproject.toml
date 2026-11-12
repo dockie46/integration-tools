@@ -42,6 +42,8 @@ default = true
 
 [tool.pytest.ini_options]
 testpaths = [
+    "google/oauth/tests",
+    "google/calendar/tests",
     "google/gmail/tests",
     "integration_providers/tests",
     "icloud/tests",
@@ -49,6 +51,7 @@ testpaths = [
 pythonpath = [
     "google/gmail/src",
     "google/gmail/tests",
+    "google/calendar/tests",
     "google/oauth/src",
     "google/calendar/src",
     "icloud/src",

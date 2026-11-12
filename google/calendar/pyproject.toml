@@ -1,7 +1,7 @@
 [project]
 name = "gcal-read"
-version = "0.1.0"
-description = "Read Google Calendar locally (desktop OAuth client) or on AWS Lambda."
+version = "0.2.0"
+description = "Google Calendar: read, free/busy and idempotent event writes (desktop, Lambda, multi-tenant)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
