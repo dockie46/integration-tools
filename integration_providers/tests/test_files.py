@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from gdrive import DriveError, DriveFile
-from s3files import S3Error, S3File
-
-from integration_providers import files as files_module
+from gdrive import DriveError, DriveFile, DriveFolder
 from integration_providers.files import (
     DriveFileStore,
     FileStoreError,
     S3FileStore,
     open_file_store,
 )
+from s3files import S3Error, S3File
+
+from integration_providers import files as files_module
 
 NOW = datetime(2026, 11, 12, tzinfo=UTC)
 
@@ -96,6 +96,18 @@ class _Drive:
 
     def rename(self, file_id, name):
         self.calls.append(("rename", file_id, name))
+
+    def read(self, file_id, offset, length):
+        return DriveFile(file_id, "a.txt", 10, "text/plain"), b"0123456789"[
+            offset : offset + length
+        ]
+
+    def folders(self, parent_id=None):
+        self.calls.append(("folders", parent_id))
+        return [DriveFolder("fo-1", "Smlouvy", parent_id or "root")]
+
+    def create_folder(self, name, parent_id=None):
+        return DriveFolder("fo-2", name, parent_id or "root")
 
     def start_upload(
         self, key, content_type, *, name=None, folder=None, size=None, origin=None
@@ -216,3 +228,29 @@ def test_s3_store_uses_object_key_as_ref():
     }
     with pytest.raises(FileStoreError, match="bucket not found"):
         failing.put("c1/f1", b"x")
+
+
+def test_drive_store_reads_parts_and_browses_folders():
+    drive = _Drive()
+    store = DriveFileStore(drive)
+
+    info, part = store.read("drive-1", 2, 3)
+    assert (part, info.size, info.ref) == (b"234", 10, "drive-1")
+    assert [f.to_dict() for f in store.folders()] == [
+        {"provider": "gdrive", "ref": "fo-1", "name": "Smlouvy", "parent": "root"}
+    ]
+    assert ("folders", None) in drive.calls
+    assert store.create_folder("Faktury", "fo-1").to_dict() == {
+        "provider": "gdrive",
+        "ref": "fo-2",
+        "name": "Faktury",
+        "parent": "fo-1",
+    }
+
+
+def test_s3_store_has_no_folders_to_browse():
+    store = S3FileStore(_S3())
+
+    assert store.folders() == []
+    with pytest.raises(FileStoreError):
+        store.create_folder("Docs")

@@ -179,6 +179,39 @@ class S3Files:
         )
         return info, data
 
+    def read(self, ref: str, offset: int, length: int) -> tuple[S3File, bytes]:
+        """``length`` bytes from ``offset`` (fewer at the end), for streaming large objects in parts. The returned
+        file's ``size`` is the whole object's (from Content-Range)."""
+        if offset < 0 or length <= 0:
+            raise ValueError("offset must be >= 0 and length > 0.")
+        ref = normalize_key(ref)
+        try:
+            obj = self.client.get_object(
+                Bucket=self.bucket,
+                Key=ref,
+                Range=f"bytes={offset}-{offset + length - 1}",
+            )
+        except ClientError as exc:
+            code = _code(exc)
+            if code in ("404", "NoSuchKey"):
+                raise FileNotFoundError(f"No S3 object at '{ref}'.") from exc
+            if code in ("416", "InvalidRange"):
+                info = self.stat(ref)
+                if info is None:
+                    raise FileNotFoundError(f"No S3 object at '{ref}'.") from exc
+                return info, b""
+            raise S3Error(f"S3 download failed: {code or exc}", code) from exc
+        data = obj["Body"].read()
+        total = str(obj.get("ContentRange") or "").rpartition("/")[2]
+        info = S3File(
+            key=ref,
+            size=int(total) if total.isdigit() else offset + len(data),
+            content_type=str(obj.get("ContentType") or "application/octet-stream"),
+            modified=obj.get("LastModified"),
+            etag=str(obj.get("ETag") or "").strip('"'),
+        )
+        return info, data
+
     def delete(self, ref: str) -> bool:
         """True when there was an object to delete (S3 itself answers the same either way)."""
         if self.stat(ref) is None:

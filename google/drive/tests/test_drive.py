@@ -15,7 +15,7 @@ DRIVE: FakeDrive
 class _FakeDownload:
     def __init__(self, buffer, request):
         self._buffer = buffer
-        self._file_id = request[1]
+        self._file_id = request.file_id
 
     def next_chunk(self):
         self._buffer.write(DRIVE.contents[self._file_id])
@@ -207,3 +207,33 @@ def test_start_upload_failure_raises(drive):
 
 def test_account(drive):
     assert DriveClient(drive).account() == "owner@firma.cz"
+
+
+def test_read_returns_a_part_and_the_whole_size(drive):
+    client = DriveClient(drive)
+    ref = client.put("c1/big", b"0123456789", "application/octet-stream").file_id
+
+    info, part = client.read(ref, 3, 4)
+    assert (part, info.size) == (b"3456", 10)
+    assert ("range", "bytes=3-6") in drive.calls
+    assert client.read(ref, 8, 100)[1] == b"89"
+    assert client.read(ref, 10, 5)[1] == b""
+    with pytest.raises(ValueError, match="offset"):
+        client.read(ref, -1, 5)
+    with pytest.raises(FileNotFoundError):
+        client.read("missing", 0, 5)
+
+
+def test_folders_lists_and_creates_under_the_root(drive):
+    client = DriveClient(drive)
+    client.put("c1/f1", b"x", folder="Smlouvy")
+    made = client.create_folder(" Faktury ")
+    again = client.create_folder("Faktury")
+
+    names = [f.name for f in client.folders()]
+    assert names == ["Faktury", "Smlouvy"]
+    assert again.folder_id == made.folder_id
+    sub = client.create_folder("2026", made.folder_id)
+    assert [f.folder_id for f in client.folders(made.folder_id)] == [sub.folder_id]
+    with pytest.raises(ValueError, match="folder needs a name"):
+        client.create_folder("a/b")
