@@ -262,6 +262,7 @@ class GoogleProvider:
             location=event.location,
             busy=event.busy,
             external_key=event.external_key,
+            organizer=event.organizer,
         )
 
     def free_busy(

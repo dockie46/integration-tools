@@ -217,6 +217,7 @@ def test_google_provider_sync_and_create_calendar(monkeypatch):
             event = CalendarEvent(
                 "e1", calendar_id, "Porada", "confirmed",
                 EventTime(date="2026-11-12"), EventTime(date="2026-11-13"),
+                organizer="jana@firma.cz",
             )
             return EventSync(changed=[event], deleted_ids=["old"], next_sync_token="tok-2", full=False)
 
@@ -240,6 +241,7 @@ def test_google_provider_sync_and_create_calendar(monkeypatch):
     assert result.deleted_ids == ["old"]
     assert result.changed[0].start.isoformat() == "2026-11-11T23:00:00+00:00"
     assert result.to_dict()["changed"][0]["id"] == "e1"
+    assert result.changed[0].organizer == "jana@firma.cz"
 
     created = provider.create_calendar("Zasedačka 2", time_zone="Europe/Prague")
     assert (created.id, created.name) == ("new@group", "Zasedačka 2")
