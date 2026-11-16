@@ -54,6 +54,13 @@ class DriveFile:
     modified: datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DriveFolder:
+    folder_id: str
+    name: str
+    parent_id: str = ""
+
+
 def split_key(key: str) -> list[str]:
     """``a/b/c.pdf`` -> ``["a", "b", "c.pdf"]``; rejects empty, absolute and ``..`` keys."""
     parts = [p for p in str(key).replace("\\", "/").split("/") if p]
@@ -273,6 +280,25 @@ class DriveClient:
             raise _error("download", exc) from exc
         return info, buffer.getvalue()
 
+    def read(self, file_id: str, offset: int, length: int) -> tuple[DriveFile, bytes]:
+        """``length`` bytes from ``offset`` (fewer at the end of the file), so large files can be streamed in parts.
+        The returned file's ``size`` is the whole file's."""
+        if offset < 0 or length <= 0:
+            raise ValueError("offset must be >= 0 and length > 0.")
+        info = self.stat(file_id)
+        if info is None:
+            raise FileNotFoundError(f"No Drive file with id '{file_id}'.")
+        if offset >= info.size:
+            return info, b""
+        end = min(offset + length, info.size) - 1
+        try:
+            request = self.service.files().get_media(fileId=file_id)
+            request.headers["Range"] = f"bytes={offset}-{end}"
+            data = request.execute()
+        except HttpError as exc:
+            raise _error("download", exc) from exc
+        return info, bytes(data or b"")
+
     def delete(self, file_id: str) -> bool:
         try:
             self.service.files().delete(fileId=file_id).execute()
@@ -349,6 +375,52 @@ class DriveClient:
                 response.status_code,
             )
         return location, (now or datetime.now(UTC)) + SESSION_LIFETIME
+
+    def folders(self, parent_id: str | None = None) -> list[DriveFolder]:
+        """Folders directly in ``parent_id`` (default: the app's root), sorted by name. With the ``drive.file``
+        scope only folders the app made (or the user picked for it) are visible."""
+        parent = parent_id or self.root_id()
+        query = f"'{_q(parent)}' in parents and trashed = false and mimeType = '{FOLDER_MIME}'"
+        found: list[DriveFolder] = []
+        token: str | None = None
+        try:
+            while True:
+                response = (
+                    self.service.files()
+                    .list(
+                        q=query,
+                        fields="nextPageToken,files(id,name)",
+                        pageSize=200,
+                        spaces="drive",
+                        orderBy="name",
+                        pageToken=token,
+                    )
+                    .execute()
+                )
+                found += [
+                    DriveFolder(
+                        str(f.get("id") or ""), str(f.get("name") or ""), parent
+                    )
+                    for f in response.get("files") or []
+                ]
+                token = response.get("nextPageToken")
+                if not token:
+                    break
+        except HttpError as exc:
+            raise _error("list folders", exc) from exc
+        return sorted(found, key=lambda f: f.name.lower())
+
+    def create_folder(self, name: str, parent_id: str | None = None) -> DriveFolder:
+        """A folder ``name`` in ``parent_id`` (default: the app's root); an existing one of that name is reused."""
+        clean = name.strip()
+        if not clean or "/" in clean:
+            raise ValueError("A folder needs a name without '/'.")
+        parent = parent_id or self.root_id()
+        existing = self._child(parent, clean, folder=True)
+        folder_id = (
+            str(existing["id"]) if existing else self._create_folder(parent, clean)
+        )
+        return DriveFolder(folder_id, clean, parent)
 
     def account(self) -> str:
         """Email of the connected account (to show and to check the connection)."""

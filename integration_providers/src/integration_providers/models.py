@@ -58,6 +58,8 @@ class CalendarEventItem:
     location: str = ""
     busy: bool = True
     external_key: str = ""
+    # Who made it (e-mail when the provider has one): for a room's calendar, the person who booked the room.
+    organizer: str = ""
 
     def to_dict(self) -> dict:
         data = asdict(self)

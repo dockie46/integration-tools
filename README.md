@@ -11,6 +11,7 @@ make test
 ```
 integration-tools/
   google/                  # OAuth, Gmail, Calendar, Drive
+  microsoft/calendar/      # Microsoft 365 room calendars (Graph, app-only)
   aws/s3/                  # S3 files (s3files)
   icloud/                  # IMAP + CalDAV
   integration_providers/   # factory package (import: integration_providers)
@@ -107,6 +108,28 @@ Errors to act on: `GoogleTokenRevokedError` and `GoogleScopesMissingError` mean 
 again"; `CredentialsMissingError` means the stored secret is incomplete. The OAuth client must be of type
 **Web application** with the app's redirect URI registered.
 
+### Microsoft 365 (Teams / Outlook rooms)
+
+Same calendar surface as Google, different auth: a Microsoft connection is a tenant-wide **Entra ID app
+registration with admin consent** (app-only, no signed-in user), not per-user OAuth. The stored secret carries
+`tenantId`, `clientId` and `clientSecret`; room mailboxes are addressed by e-mail.
+
+```python
+from integration_providers.microsoft_provider import MicrosoftProvider
+
+ms = MicrosoftProvider.from_secret(secret, calendar_ids=["praha2@firma.cz"])  # room mailbox e-mails
+ms.list_calendars()                      # rooms via /places/microsoft.graph.room (Place.Read.All)
+ms.list_events_between(start, end)       # calendarView, times in UTC
+ms.free_busy(start, end)                 # getSchedule — busy time only, no titles
+ms.upsert_event("praha2@firma.cz", EventWrite(...))   # idempotent by external_key (sourceKey property)
+ms.sync_events("praha2@firma.cz", token) # calendarView/delta; on 410 a fresh full read sets .full
+```
+
+The key is stored in a single-value extended property (`sourceKey`), so the app never needs Graph's event id.
+App permissions: `Calendars.ReadWrite` and `Place.Read.All` (application), scoped to the room mailboxes with an
+Application Access Policy. Rooms are provisioned in Exchange, so `create_calendar` / `share_calendar` are not
+supported here. `MicrosoftAuthError` / `GraphAuthError` mean "connect the account again".
+
 ## Credentials
 
 **Google**
@@ -119,6 +142,16 @@ again"; `CredentialsMissingError` means the stored secret is incomplete. The OAu
 ```
 
 Use calendar **ids** from `list_calendars("google")`. Default without the file: `primary` only.
+
+**Microsoft 365**
+
+No files: the connection secret (from the platform's Secrets Manager) carries `tenantId`, `clientId`,
+`clientSecret` and an optional `rooms` list (room mailbox e-mails). For local discovery, `MICROSOFT_SECRET_JSON`
+holds the same object.
+
+```json
+{ "tenantId": "…", "clientId": "…", "clientSecret": "…", "rooms": ["praha2@firma.cz"] }
+```
 
 **iCloud**
 

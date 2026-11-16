@@ -86,6 +86,39 @@ def test_get_by_ref_does_not_add_the_prefix_again(files):
     assert info.key == "firma-1/c1/f1"
 
 
+def test_read_asks_for_a_range_and_reports_the_whole_size(files):
+    store, stub = files
+    stub.add_response(
+        "get_object",
+        {
+            "Body": StreamingBody(io.BytesIO(b"3456"), 4),
+            "ContentType": "application/pdf",
+            "ContentRange": "bytes 3-6/10",
+        },
+        {"Bucket": "docs", "Key": "firma-1/c1/f1", "Range": "bytes=3-6"},
+    )
+
+    info, data = store.read("firma-1/c1/f1", 3, 4)
+
+    assert (data, info.size) == (b"3456", 10)
+
+
+def test_read_past_the_end_is_empty(files):
+    store, stub = files
+    stub.add_client_error(
+        "get_object", service_error_code="InvalidRange", http_status_code=416
+    )
+    stub.add_response(
+        "head_object",
+        {"ContentLength": 10, "ContentType": "application/pdf"},
+        {"Bucket": "docs", "Key": "firma-1/c1/f1"},
+    )
+
+    info, data = store.read("firma-1/c1/f1", 10, 4)
+
+    assert (data, info.size) == (b"", 10)
+
+
 def test_get_missing_raises_file_not_found(files):
     store, stub = files
     stub.add_client_error(

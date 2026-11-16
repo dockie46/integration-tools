@@ -27,6 +27,7 @@ members = [
     "google/drive",
     "aws/s3",
     "icloud",
+    "microsoft/calendar",
     "integration_providers",
 ]
 
@@ -37,6 +38,7 @@ gcal-read = { workspace = true }
 gdrive = { workspace = true }
 s3files = { workspace = true }
 icloud-read = { workspace = true }
+mscal-read = { workspace = true }
 integration-providers = { workspace = true }
 
 [[tool.uv.index]]
@@ -51,6 +53,7 @@ testpaths = [
     "google/drive/tests",
     "aws/s3/tests",
     "google/gmail/tests",
+    "microsoft/calendar/tests",
     "integration_providers/tests",
     "icloud/tests",
 ]
@@ -64,8 +67,10 @@ pythonpath = [
     "google/drive/tests",
     "aws/s3/src",
     "icloud/src",
+    "microsoft/calendar/src",
+    "microsoft/calendar/tests",
     "integration_providers/src",
 ]
 
 [tool.pylint.main]
-init-hook = "import sys; sys.path.extend(['integration_providers/src', 'google/gmail/src', 'google/oauth/src', 'google/calendar/src', 'google/drive/src', 'aws/s3/src', 'icloud/src'])"
+init-hook = "import sys; sys.path.extend(['integration_providers/src', 'google/gmail/src', 'google/oauth/src', 'google/calendar/src', 'google/drive/src', 'aws/s3/src', 'icloud/src', 'microsoft/calendar/src'])"

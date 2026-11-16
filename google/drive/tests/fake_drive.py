@@ -23,11 +23,28 @@ class _Req:
         return self._fn()
 
 
+class _Media:
+    """get_media request: a download (``file_id``) or, with a Range header, ``execute()`` answers those bytes."""
+
+    def __init__(self, drive: FakeDrive, file_id: str) -> None:
+        self._d = drive
+        self.file_id = file_id
+        self.headers: dict[str, str] = {}
+
+    def execute(self) -> bytes:
+        data = self._d.contents[self.file_id]
+        match = re.fullmatch(r"bytes=(\d+)-(\d+)", self.headers.get("Range", ""))
+        if match:
+            self._d.calls.append(("range", self.headers["Range"]))
+            return data[int(match.group(1)) : int(match.group(2)) + 1]
+        return data
+
+
 class _Files:
     def __init__(self, drive: FakeDrive) -> None:
         self._d = drive
 
-    def list(self, q: str, **_: Any) -> _Req:
+    def list(self, q: str, pageSize: int = 2, **_: Any) -> _Req:  # noqa: N803 - Google API name
         self._d.calls.append(("list", q))
         prop = re.search(
             r"appProperties has \{ key='(\w+)' and value='((?:[^'\\]|\\.)*)' \}", q
@@ -55,7 +72,7 @@ class _Files:
                 if want_file and f["mimeType"] == FOLDER:
                     continue
                 found.append(dict(f))
-            return {"files": found[:2]}
+            return {"files": found[:pageSize]}
 
         return _Req(run)
 
@@ -116,8 +133,8 @@ class _Files:
 
         return _Req(run)
 
-    def get_media(self, fileId: str) -> Any:  # noqa: N803 - Google API name
-        return ("media", fileId)
+    def get_media(self, fileId: str) -> _Media:  # noqa: N803 - Google API name
+        return _Media(self._d, fileId)
 
 
 class _About:

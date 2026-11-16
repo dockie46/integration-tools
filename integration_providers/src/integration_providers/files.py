@@ -62,6 +62,19 @@ class UploadTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class FolderInfo:
+    """A folder people browse in the store (Drive). ``ref`` is what the app keeps (Drive's folder id)."""
+
+    provider: str
+    ref: str
+    name: str
+    parent: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class StoreCheck:
     provider: str
     ok: bool
@@ -91,9 +104,19 @@ class FileStore(Protocol):
 
     def get(self, ref: str) -> tuple[FileInfo, bytes]: ...
 
+    def read(self, ref: str, offset: int, length: int) -> tuple[FileInfo, bytes]:
+        """Part of a file (for streaming large ones); ``FileInfo.size`` is the whole file's."""
+        ...
+
     def delete(self, ref: str) -> bool: ...
 
     def rename(self, ref: str, name: str) -> None: ...
+
+    def folders(self, parent: str | None = None) -> list[FolderInfo]:
+        """Folders in ``parent`` (default: the store's root); empty where the store has none to browse (S3)."""
+        ...
+
+    def create_folder(self, name: str, parent: str | None = None) -> FolderInfo: ...
 
     def upload_target(
         self,
@@ -159,11 +182,25 @@ class DriveFileStore:
         raw, data = self._guard(lambda: self._client.get(ref))
         return self._info(raw), data
 
+    def read(self, ref: str, offset: int, length: int) -> tuple[FileInfo, bytes]:
+        raw, data = self._guard(lambda: self._client.read(ref, offset, length))
+        return self._info(raw), data
+
     def delete(self, ref: str) -> bool:
         return bool(self._guard(lambda: self._client.delete(ref)))
 
     def rename(self, ref: str, name: str) -> None:
         self._guard(lambda: self._client.rename(ref, name))
+
+    def folders(self, parent: str | None = None) -> list[FolderInfo]:
+        return [
+            FolderInfo(self.name, f.folder_id, f.name, f.parent_id)
+            for f in self._guard(lambda: self._client.folders(parent or None))
+        ]
+
+    def create_folder(self, name: str, parent: str | None = None) -> FolderInfo:
+        f = self._guard(lambda: self._client.create_folder(name, parent or None))
+        return FolderInfo(self.name, f.folder_id, f.name, f.parent_id)
 
     def upload_target(
         self,
@@ -248,11 +285,24 @@ class S3FileStore:
         raw, data = self._guard(lambda: self._client.get(ref))
         return self._info(raw), data
 
+    def read(self, ref: str, offset: int, length: int) -> tuple[FileInfo, bytes]:
+        raw, data = self._guard(lambda: self._client.read(ref, offset, length))
+        return self._info(raw), data
+
     def delete(self, ref: str) -> bool:
         return bool(self._guard(lambda: self._client.delete(ref)))
 
     def rename(self, ref: str, name: str) -> None:
         """Nothing to do: the name people see lives in the app and in the download link."""
+
+    def folders(self, parent: str | None = None) -> list[FolderInfo]:  # noqa: ARG002 - FileStore shape
+        """S3 has no folders of its own: a folder is just a path in the key, typed in the app."""
+        return []
+
+    def create_folder(self, name: str, parent: str | None = None) -> FolderInfo:  # noqa: ARG002
+        raise FileStoreError(
+            "S3 has no folders to create: a folder is a path, created with the first file."
+        )
 
     def upload_target(
         self,
