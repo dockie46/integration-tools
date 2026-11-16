@@ -11,6 +11,7 @@ dependencies = [
     "icloud-read",
     "gdrive",
     "s3files",
+    "mscal-read",
 ]
 
 [build-system]
