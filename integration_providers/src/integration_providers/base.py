@@ -62,6 +62,8 @@ class CalendarWriter(Protocol):
 
     def delete_event(self, calendar_id: str, external_key: str) -> bool: ...
 
+    def decline_event(self, calendar_id: str, event_id: str, comment: str = "") -> bool: ...
+
     def sync_events(
         self,
         calendar_id: str,

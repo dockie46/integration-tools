@@ -94,6 +94,9 @@ class CalendarClient:
     def delete_event(self, calendar_id: str, external_key: str) -> bool:
         return calendar_write.delete_event_by_key(self.service, calendar_id, external_key)
 
+    def decline_event(self, calendar_id: str, event_id: str, comment: str = "") -> bool:
+        return calendar_write.decline_event(self.service, calendar_id, event_id, comment)
+
     def create_calendar(self, summary: str, *, time_zone: str = "UTC", description: str = "") -> CalendarRef:
         return calendar_write.create_calendar(self.service, summary, time_zone=time_zone, description=description)
 

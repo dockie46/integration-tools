@@ -207,6 +207,10 @@ class MicrosoftProvider:
     def delete_event(self, calendar_id: str, external_key: str) -> bool:
         return self._cal().delete_event(calendar_id, external_key)
 
+    def decline_event(self, calendar_id: str, event_id: str, comment: str = "") -> bool:
+        """Decline the calendar's invitation to ``event_id`` (a room turning down a colliding meeting)."""
+        return self._cal().decline_event(calendar_id, event_id, comment)
+
     def sync_events(
         self,
         calendar_id: str,

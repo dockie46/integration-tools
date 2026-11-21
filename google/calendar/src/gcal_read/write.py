@@ -129,6 +129,50 @@ def delete_event_by_key(service: Resource, calendar_id: str, external_key: str) 
     return True
 
 
+
+def decline_event(service: Resource, calendar_id: str, event_id: str, comment: str = "") -> bool:
+    """Decline the invitation of ``calendar_id`` (a room's resource calendar) to ``event_id``; the organizer is told.
+
+    The calendar answers as its own attendee (``self`` or its e-mail). False when the event is gone or the calendar is
+    not invited to it; True when it is declined now or was already."""
+    try:
+        raw = _execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event_id))
+    except HttpError as exc:
+        if _status(exc) in (404, 410):
+            return False
+        raise _api_error("read", exc) from exc
+    attendees = [dict(a) for a in raw.get("attendees") or []]
+    own = next(
+        (
+            a
+            for a in attendees
+            if a.get("self") or str(a.get("email", "")).lower() == calendar_id.lower()
+        ),
+        None,
+    )
+    if own is None:
+        return False
+    if own.get("responseStatus") == "declined":
+        return True
+    own["responseStatus"] = "declined"
+    if comment:
+        own["comment"] = comment
+    try:
+        _execute_with_retry(
+            service.events().patch(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body={"attendees": attendees},
+                sendUpdates="all",
+            )
+        )
+    except HttpError as exc:
+        if _status(exc) in (404, 410):
+            return False
+        raise _api_error("write", exc) from exc
+    return True
+
+
 def list_events_between(
     service: Resource,
     calendar_id: str,

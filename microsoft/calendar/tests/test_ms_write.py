@@ -5,7 +5,13 @@ from fake_transport import FakeResponse, FakeTransport
 from mscal_read.api import EXTERNAL_KEY_PROP
 from mscal_read.graph import GraphApiError, GraphClient
 from mscal_read.models import EventInput
-from mscal_read.write import delete_event_by_key, event_body, free_busy, upsert_event
+from mscal_read.write import (
+    decline_event,
+    delete_event_by_key,
+    event_body,
+    free_busy,
+    upsert_event,
+)
 
 START = datetime(2026, 11, 12, 8, tzinfo=UTC)
 END = START + timedelta(hours=1)
@@ -119,3 +125,18 @@ def test_api_error_carries_status():
     with pytest.raises(GraphApiError) as err:
         free_busy(graph, ["room@firma.cz"], START, END)
     assert err.value.status == 404
+
+
+def test_decline_posts_to_the_room_and_sends_the_answer():
+    graph, transport = _client(FakeResponse(status_code=202))
+
+    assert decline_event(graph, "room@firma.cz", "evt-7", "Obsazeno") is True
+    call = transport.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"].endswith("/users/room@firma.cz/events/evt-7/decline")
+    assert call["json"] == {"comment": "Obsazeno", "sendResponse": True}
+
+
+def test_decline_of_a_gone_event_is_false():
+    graph, _ = _client(FakeResponse(status_code=404, body={"error": {"code": "ErrorItemNotFound", "message": "gone"}}))
+    assert decline_event(graph, "room@firma.cz", "evt-7") is False

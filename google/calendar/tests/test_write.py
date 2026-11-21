@@ -8,6 +8,7 @@ from gcal_read.api import EXTERNAL_KEY_PROPERTY, parse_event
 from gcal_read.models import EventInput, EventTime
 from gcal_read.write import (
     CalendarApiError,
+    decline_event,
     delete_event_by_key,
     event_body,
     free_busy,
@@ -226,3 +227,44 @@ def test_event_time_as_utc():
         date_time="2026-11-12T09:00:00", time_zone="Europe/Prague"
     ).as_utc() == datetime(2026, 11, 12, 8, 0, tzinfo=UTC)
     assert EventTime().as_utc() is None
+
+
+ROOM = "c_room1@resource.calendar.google.com"
+
+
+def test_decline_marks_the_room_declined_and_tells_the_organizer():
+    service = FakeCalendarService()
+    service.events_by_id["evt-9"] = {
+        "id": "evt-9",
+        "attendees": [
+            {"email": "jana@firma.cz", "responseStatus": "accepted", "organizer": True},
+            {"email": ROOM, "resource": True, "responseStatus": "accepted"},
+        ],
+    }
+
+    assert decline_event(service, ROOM, "evt-9", "Zasedačka je obsazená") is True
+    name, call = service.calls[-1]
+    assert name == "patch"
+    assert call["sendUpdates"] == "all"
+    assert call["eventId"] == "evt-9"
+    room = next(a for a in call["body"]["attendees"] if a["email"] == ROOM)
+    assert room == {"email": ROOM, "resource": True, "responseStatus": "declined", "comment": "Zasedačka je obsazená"}
+    organizer = next(a for a in call["body"]["attendees"] if a["email"] == "jana@firma.cz")
+    assert organizer["responseStatus"] == "accepted"
+
+
+def test_decline_matches_the_room_as_self_and_is_idempotent():
+    service = FakeCalendarService()
+    service.events_by_id["evt-9"] = {"id": "evt-9", "attendees": [{"email": "x@y", "self": True, "responseStatus": "declined"}]}
+
+    assert decline_event(service, ROOM, "evt-9") is True
+    assert [c[0] for c in service.calls] == ["get"]
+
+
+def test_decline_is_false_when_the_room_is_not_invited_or_the_event_is_gone():
+    service = FakeCalendarService()
+    service.events_by_id["evt-9"] = {"id": "evt-9", "attendees": [{"email": "jana@firma.cz"}]}
+    assert decline_event(service, ROOM, "evt-9") is False
+
+    service.get_error = _http_error(404)
+    assert decline_event(service, ROOM, "evt-missing") is False

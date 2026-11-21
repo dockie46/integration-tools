@@ -106,6 +106,21 @@ def delete_event_by_key(graph: GraphClient, calendar_id: str, external_key: str)
     return True
 
 
+
+def decline_event(graph: GraphClient, calendar_id: str, event_id: str, comment: str = "") -> bool:
+    """Decline ``event_id`` in the mailbox ``calendar_id`` (a room) and send the organizer the answer.
+
+    False when the event is gone (404 / 410); a second decline of the same event is accepted by Graph."""
+    body = {"comment": comment, "sendResponse": True}
+    try:
+        graph.post(_mailbox_path(calendar_id, f"events/{event_id}/decline"), body)
+    except GraphApiError as exc:
+        if exc.status in (404, 410):
+            return False
+        raise
+    return True
+
+
 def free_busy(graph: GraphClient, calendar_ids: Iterable[str], start: datetime, end: datetime) -> FreeBusy:
     """Busy intervals of ``calendar_ids`` in [start, end) via getSchedule. Only busy time is exposed, no titles."""
     if end <= start:
