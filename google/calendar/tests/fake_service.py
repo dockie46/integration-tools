@@ -30,6 +30,11 @@ class _Events:
             return _Request({"items": self._s.by_key.get(key, [])})
         return _Request({"items": self._s.window_items})
 
+    def get(self, **kwargs: Any) -> _Request:
+        self._s.calls.append(("get", kwargs))
+        found = self._s.events_by_id.get(kwargs["eventId"])
+        return _Request(None, self._s.get_error) if found is None else _Request(found)
+
     def insert(self, **kwargs: Any) -> _Request:
         self._s.calls.append(("insert", kwargs))
         return _Request({"id": "new-1", **kwargs["body"]})
@@ -91,6 +96,8 @@ class FakeCalendarService:
         self.freebusy_data: dict[str, dict] = {}
         self.delete_error: Exception | None = None
         self.list_queue: list[dict | Exception] = []
+        self.events_by_id: dict[str, dict] = {}
+        self.get_error: Exception | None = None
 
     def events(self) -> _Events:
         return _Events(self)

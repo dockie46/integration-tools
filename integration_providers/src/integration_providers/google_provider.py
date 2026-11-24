@@ -308,6 +308,10 @@ class GoogleProvider:
             self._calendar_manager = CalendarClient.from_secret(self._secret, write=True, manage=True)
         return self._calendar_manager
 
+    def decline_event(self, calendar_id: str, event_id: str, comment: str = "") -> bool:
+        """Decline the calendar's invitation to ``event_id`` (a room turning down a colliding meeting)."""
+        return self._cal().decline_event(calendar_id, event_id, comment)
+
     def sync_events(
         self,
         calendar_id: str,

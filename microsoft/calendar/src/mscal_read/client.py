@@ -53,6 +53,9 @@ class CalendarClient:
     def delete_event(self, calendar_id: str, external_key: str) -> bool:
         return calendar_write.delete_event_by_key(self.graph, calendar_id, external_key)
 
+    def decline_event(self, calendar_id: str, event_id: str, comment: str = "") -> bool:
+        return calendar_write.decline_event(self.graph, calendar_id, event_id, comment)
+
     def sync_events(
         self,
         calendar_id: str,
